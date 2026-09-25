@@ -1,18 +1,19 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Confirmation, OpResult } from '../../core';
-import type { ProjectInfo } from '../../shared/api';
+import type { ExcelMode, OpenVia, ProjectInfo } from '../../shared/api';
 import { api, storageGet, storageSet, unwrap } from './api';
 import { BookView } from './components/BookView';
 import { useDialog } from './components/Dialogs';
 import { Icon } from './components/Icons';
 import { Panel, type LogEntry, type Problem } from './components/Panel';
 import { RulesEditor, RulesList } from './components/RulesView';
+import { EXCEL_MODES, SettingsView } from './components/SettingsView';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
 import { Welcome } from './components/Welcome';
 
-type View = 'books' | 'rules';
+type View = 'books' | 'rules' | 'settings';
 
 const ACTION_LABEL: Record<string, string> = {
   'write-file': 'ファイル出力',
@@ -39,7 +40,17 @@ export function App() {
   const [panelTab, setPanelTab] = useState<'problems' | 'output'>('output');
   const [busy, setBusy] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>(() => storageGet('recent', []));
-  const [webMode, setWebMode] = useState<boolean>(() => storageGet('webMode', true));
+  // 使う Excel（このパソコンの設定）。未設定なら初回に確認する
+  const [excelMode, setExcelModeState] = useState<ExcelMode | null>(() =>
+    storageGet<ExcelMode | null>('excelMode', null),
+  );
+  const mode: ExcelMode = excelMode ?? 'both';
+  const setExcelMode = useCallback((m: ExcelMode) => {
+    setExcelModeState(m);
+    storageSet('excelMode', m);
+  }, []);
+  // ブックを最後に xlCode からどちらで開いたか（キー: ルート|ブック）
+  const lastOpened = useRef<Record<string, OpenVia>>(storageGet('lastOpened', {}));
   const webSkip = useRef(new Set<string>());
   const busyRef = useRef(false);
   const { ask, node: dialog } = useDialog();
@@ -106,13 +117,18 @@ export function App() {
 
   const confirmWebClosed = useCallback(
     async (book: string): Promise<boolean> => {
-      if (!webMode || webSkip.current.has(book)) return true;
+      if (mode === 'desktop' || webSkip.current.has(book)) return true;
+      // 両方モード: xlCode からデスクトップ版で開いたブックは、ロックファイルで閉じたことを検知できる
+      if (mode === 'both' && lastOpened.current[`${root}|${book}`] === 'desktop') return true;
       const { value, checked } = await ask({
         title: 'Web 版 Excel でこのブックを閉じましたか？',
         icon: 'warning',
         body: (
           <>
-            <p>Web 版 Excel で開いている状態は xlCode から検知できません。</p>
+            <p>
+              Web 版 Excel で開いている状態は xlCode
+              から検知できません（デスクトップ版で開いている場合は自動で検知します）。
+            </p>
             <p className="mt-2">
               開いたまま実行すると、自動保存とローカルの書き換えがぶつかり、片方の変更が丸ごと失われます。ブラウザのタブを閉じ、OneDrive
               の同期完了を確認してから続行してください。
@@ -129,7 +145,7 @@ export function App() {
       if (value && checked) webSkip.current.add(book);
       return value;
     },
-    [ask, webMode],
+    [ask, mode, root],
   );
 
   const askConfirmations = useCallback(
@@ -169,10 +185,15 @@ export function App() {
 
   /** confirm が返ったら確認して confirmed: true で再実行する */
   const runConfirmed = useCallback(
-    async (label: string, run: (confirmed: boolean) => Promise<OpResult>): Promise<OpResult> => {
+    async (
+      label: string,
+      run: (confirmed: boolean) => Promise<OpResult>,
+      autoAccept: Confirmation['kind'][] = [],
+    ): Promise<OpResult> => {
       const r = await run(false);
       if (r.status !== 'confirm') return r;
-      if (!(await askConfirmations(label, r.confirmations))) return r;
+      const rest = r.confirmations.filter((c) => !autoAccept.includes(c.kind));
+      if (rest.length > 0 && !(await askConfirmations(label, rest))) return r;
       return run(true);
     },
     [askConfirmations],
@@ -253,8 +274,11 @@ export function App() {
           if (!(await buildFlow(book))) return null;
           log('info', `Sync 開始: ${book}`);
         } else discard = true;
-        r = await runConfirmed('Sync', (confirmed) =>
-          unwrap(api.sync(root!, book, { confirmed, discardExcelChanges: discard })),
+        // 直前の Build が出力したファイルは未コミットになるため、その確認は省く
+        r = await runConfirmed(
+          'Sync',
+          (confirmed) => unwrap(api.sync(root!, book, { confirmed, discardExcelChanges: discard })),
+          discard ? [] : ['uncommitted'],
         );
       }
       logResult('Sync', r);
@@ -282,14 +306,36 @@ export function App() {
 
   /** 5.5-2: Sync → 起動を1操作にまとめる */
   const onOpenExcel = useCallback(
-    (book: string) =>
+    (book: string, via: OpenVia) =>
       withBusy('Sync して Excel を起動中', async () => {
         if (!(await confirmWebClosed(book))) return;
         if (!(await syncFlow(book))) return;
-        await unwrap(api.openInExcel(root!, book));
-        log('info', `Excel で開きました: ${book}`);
+        const opened = await api.openInExcel(root!, book, via);
+        if (!opened.ok) {
+          if (via !== 'web') throw new Error(opened.error);
+          const { value } = await ask({
+            title: 'Web 版で開けませんでした',
+            icon: 'warning',
+            body: <p>{opened.error}</p>,
+            buttons: [
+              { label: '設定を開く', value: true, variant: 'primary' },
+              { label: '閉じる', value: false },
+            ],
+            cancelValue: false,
+          });
+          if (value) setView('settings');
+          log('error', opened.error);
+          return;
+        }
+        const url = opened.value;
+        lastOpened.current = { ...lastOpened.current, [`${root}|${book}`]: via };
+        storageSet('lastOpened', lastOpened.current);
+        // Web 版で開いたら、閉じたかの確認を再び出す
+        if (via === 'web') webSkip.current.delete(book);
+        log('info', via === 'web' ? `Web 版 Excel で開きました: ${url}` : `デスクトップ版 Excel で開きました: ${book}`);
+        if (via === 'web') log('info', '  OneDrive への同期が終わる前に開くと、古い内容が表示されることがあります');
       }),
-    [withBusy, confirmWebClosed, syncFlow, root, log],
+    [withBusy, confirmWebClosed, syncFlow, root, log, ask],
   );
 
   const onRefreshTree = useCallback(
@@ -364,10 +410,34 @@ export function App() {
       setRecent(next);
       storageSet('recent', next);
       log('info', `プロジェクトを開きました: ${p}`);
+      if (excelMode === null) {
+        const { value } = await ask<ExcelMode>({
+          title: 'どの Excel でブックを編集しますか？',
+          icon: 'info',
+          body: (
+            <div className="flex flex-col gap-2">
+              {EXCEL_MODES.map((m) => (
+                <div key={m.id}>
+                  <div className="text-fg">{m.label}</div>
+                  <div className="text-[12px] text-muted">{m.desc}</div>
+                </div>
+              ))}
+              <div className="text-[12px] text-faint">あとから設定やステータスバーで変更できます。</div>
+            </div>
+          ),
+          buttons: [
+            { label: '両方', value: 'both', variant: 'primary' },
+            { label: 'デスクトップ版のみ', value: 'desktop' },
+            { label: 'Web 版のみ', value: 'web' },
+          ],
+          cancelValue: 'both',
+        });
+        setExcelMode(value);
+      }
       // 6.4: プロジェクトを開いたときに Refresh Tree を自動実行
       await onRefreshTree(p);
     },
-    [recent, log, onRefreshTree],
+    [recent, log, onRefreshTree, excelMode, ask, setExcelMode],
   );
 
   const pickProject = useCallback(async () => {
@@ -390,6 +460,24 @@ export function App() {
       clearTimeout(t);
     };
   }, [reload]);
+
+  // デスクトップ版 Excel の開閉を監視し、変わったら状態を更新する
+  useEffect(() => {
+    if (!project || mode === 'web') return;
+    const rels = project.books.map((b) => b.rel);
+    if (rels.length === 0) return;
+    const timer = setInterval(async () => {
+      if (busyRef.current) return;
+      const r = await api.bookLocks(project.root, rels);
+      if (!r.ok) return;
+      const changed = project.books.filter((b) => r.value[b.rel] !== undefined && r.value[b.rel] !== b.open);
+      if (changed.length === 0) return;
+      for (const b of changed)
+        log('info', r.value[b.rel] ? `Excel で開かれました: ${b.rel}` : `Excel が閉じられました: ${b.rel}`);
+      void reload();
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [project, mode, reload, log]);
 
   // キーボードショートカット
   useEffect(() => {
@@ -470,6 +558,20 @@ export function App() {
           ))}
           <div className="flex-1" />
           <button
+            title="設定"
+            aria-label="設定"
+            disabled={!project}
+            onClick={() => setView('settings')}
+            className={clsx(
+              'flex h-12 items-center justify-center border-l-2 disabled:opacity-40',
+              view === 'settings' && project
+                ? 'border-fg-strong text-fg-strong'
+                : 'border-transparent text-faint hover:text-fg',
+            )}
+          >
+            <Icon.Gear size={22} />
+          </button>
+          <button
             title="プロジェクトを開く (Ctrl+O)"
             aria-label="プロジェクトを開く"
             onClick={pickProject}
@@ -480,7 +582,7 @@ export function App() {
         </nav>
 
         {/* サイドバー */}
-        {project && (
+        {project && view !== 'settings' && (
           <aside className="w-[280px] shrink-0 border-r border-line">
             {view === 'books' ? (
               <Sidebar
@@ -508,10 +610,15 @@ export function App() {
                     <Icon.Book size={14} className="text-excel" />
                     {book ? book.rel.split('/').pop() : 'ブック'}
                   </>
-                ) : (
+                ) : view === 'rules' ? (
                   <>
                     <Icon.Rules size={14} className="text-info" />
                     {ruleRel}
+                  </>
+                ) : (
+                  <>
+                    <Icon.Gear size={14} />
+                    設定
                   </>
                 )}
               </div>
@@ -525,6 +632,14 @@ export function App() {
               <div className="flex h-full items-center justify-center gap-2 text-muted">
                 <Icon.Spinner /> 読み込み中...
               </div>
+            ) : view === 'settings' ? (
+              <SettingsView
+                root={project.root}
+                mode={mode}
+                onMode={setExcelMode}
+                onError={(m) => log('error', m)}
+                onSaved={() => log('success', '設定を保存しました')}
+              />
             ) : view === 'rules' ? (
               <RulesEditor
                 key={ruleRel}
@@ -541,7 +656,8 @@ export function App() {
                 book={book}
                 treeVersion={project.treeVersion}
                 busy={busy !== null}
-                onOpenExcel={() => void onOpenExcel(book.rel)}
+                mode={mode}
+                onOpenExcel={(via) => void onOpenExcel(book.rel, via)}
                 onSync={() => void onSync(book.rel)}
                 onBuild={() => void onBuild(book.rel)}
                 onTerminal={() =>
@@ -580,11 +696,8 @@ export function App() {
         busy={busy}
         errors={problems.filter((p) => p.level === 'error').length}
         warnings={problems.filter((p) => p.level === 'warning').length}
-        webMode={webMode}
-        onToggleWeb={() => {
-          setWebMode(!webMode);
-          storageSet('webMode', !webMode);
-        }}
+        mode={mode}
+        onMode={() => setView('settings')}
         onProblems={() => {
           setPanelOpen(true);
           setPanelTab('problems');

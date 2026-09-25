@@ -163,6 +163,18 @@ export const Icon = {
       <path d="M5 2.5v3.5h5V2.5M5 13.5v-4h6v4" />
     </Svg>
   ),
+  Gear: (p: P) => (
+    <Svg {...p}>
+      <circle cx="8" cy="8" r="2" />
+      <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
+    </Svg>
+  ),
+  Desktop: (p: P) => (
+    <Svg {...p}>
+      <rect x="1.5" y="2.5" width="13" height="8.5" rx="1" />
+      <path d="M5.5 13.5h5M8 11v2.5" />
+    </Svg>
+  ),
   Cloud: (p: P) => (
     <Svg {...p}>
       <path d="M4.5 12.5a3 3 0 0 1-.3-6A4 4 0 0 1 12 6.2a3.2 3.2 0 0 1 .3 6.3z" />

@@ -1,5 +1,5 @@
 export * from './constants';
-export { DEFAULT_CONFIG, loadConfig, type XlcodeConfig } from './config';
+export { DEFAULT_CONFIG, loadConfig, saveConfig, type XlcodeConfig } from './config';
 export { build, sync, type BuildOptions, type SyncOptions } from './ops';
 export { refreshTree, checkTree, computeTree, type RefreshResult, type BookTreeResult, type TreeCheck } from './tree';
 export { initProject, createBook, type CreateBookResult } from './init';

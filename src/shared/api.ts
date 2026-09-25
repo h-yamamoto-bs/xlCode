@@ -6,7 +6,12 @@ import type {
   OpResult,
   RefreshResult,
   SyncOptions,
+  XlcodeConfig,
 } from '../core';
+
+/** どの Excel で編集するか */
+export type ExcelMode = 'desktop' | 'web' | 'both';
+export type OpenVia = 'desktop' | 'web';
 
 export interface BookSummary extends Partial<BookStatus> {
   /** ルートからの相対パス */
@@ -42,7 +47,12 @@ export interface XlcodeApi {
   createBook(root: string, dirRel: string): Promise<Result<CreateBookResult>>;
   build(root: string, bookRel: string, opts: BuildOptions): Promise<Result<OpResult>>;
   sync(root: string, bookRel: string, opts: SyncOptions): Promise<Result<OpResult>>;
-  openInExcel(root: string, bookRel: string): Promise<Result<void>>;
+  /** web の場合は開いた URL を返す */
+  openInExcel(root: string, bookRel: string, via: OpenVia): Promise<Result<string | null>>;
+  /** 各ブックがデスクトップ版 Excel で開かれているか（ポーリング用） */
+  bookLocks(root: string, bookRels: string[]): Promise<Result<Record<string, boolean>>>;
+  readConfig(root: string): Promise<Result<XlcodeConfig>>;
+  writeConfig(root: string, config: XlcodeConfig): Promise<Result<void>>;
   openTerminal(root: string, dirRel: string): Promise<Result<void>>;
   revealInFolder(root: string, rel: string): Promise<Result<void>>;
   /** Agents.md / LocalAgents.md のみ読み書きできる */

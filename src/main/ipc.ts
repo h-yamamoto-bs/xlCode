@@ -13,12 +13,16 @@ import {
   findBooks,
   gitSummary,
   initProject,
+  loadConfig,
   loadIgnore,
   refreshTree,
+  saveConfig,
   sync,
+  type XlcodeConfig,
 } from '../core';
 import { isBookFile, isIgnored, toPosixRel } from '../core/fsutil';
-import type { BookSummary, ProjectInfo, Result } from '../shared/api';
+import type { BookSummary, OpenVia, ProjectInfo, Result } from '../shared/api';
+import { joinUrl, readSyncRoots, toWebUrl } from './onedrive';
 
 async function wrap<T>(fn: () => Promise<T>): Promise<Result<T>> {
   try {
@@ -101,6 +105,17 @@ function openTerminal(dir: string): void {
   }
 }
 
+/** Web 版 Excel で開く URL。設定（webUrlBase）優先、無ければ OneDrive の同期設定から求める */
+async function webUrl(root: string, abs: string): Promise<string> {
+  const { webUrlBase } = await loadConfig(root);
+  if (webUrlBase) return joinUrl(webUrlBase, toPosixRel(root, abs).split('/'));
+  const url = toWebUrl(abs, await readSyncRoots());
+  if (url) return url;
+  throw new Error(
+    'Web 版の URL を特定できません。プロジェクトが OneDrive / SharePoint の同期フォルダ内にあるか確認するか、設定の「Web 版の URL」にプロジェクトルートの URL を入力してください',
+  );
+}
+
 const RULE_FILES = new Set([AGENTS_SHEET, LOCAL_AGENTS_SHEET]);
 
 function ruleFile(root: string, rel: string): string {
@@ -122,12 +137,29 @@ export function registerIpc(): void {
   );
   ipcMain.handle('build', (_e, root: string, book: string, opts) => wrap(() => build(root, inside(root, book), opts)));
   ipcMain.handle('sync', (_e, root: string, book: string, opts) => wrap(() => sync(root, inside(root, book), opts)));
-  ipcMain.handle('openInExcel', (_e, root: string, book: string) =>
+  ipcMain.handle('openInExcel', (_e, root: string, book: string, via: OpenVia) =>
     wrap(async () => {
-      const err = await shell.openPath(inside(root, book));
-      if (err) throw new Error(err);
+      const abs = inside(root, book);
+      if (via === 'desktop') {
+        // 関連付けられたアプリ（通常はデスクトップ版 Excel）で開く
+        const err = await shell.openPath(abs);
+        if (err) throw new Error(err);
+        return null;
+      }
+      const url = await webUrl(root, abs);
+      await shell.openExternal(url);
+      return url;
     }),
   );
+  ipcMain.handle('bookLocks', (_e, root: string, books: string[]) =>
+    wrap(async () => {
+      const out: Record<string, boolean> = {};
+      for (const b of books) out[b] = (await checkBookOpen(inside(root, b))).open;
+      return out;
+    }),
+  );
+  ipcMain.handle('readConfig', (_e, root: string) => wrap(() => loadConfig(root)));
+  ipcMain.handle('writeConfig', (_e, root: string, config: XlcodeConfig) => wrap(() => saveConfig(root, config)));
   ipcMain.handle('openTerminal', (_e, root: string, dirRel: string) =>
     wrap(async () => openTerminal(inside(root, dirRel))),
   );

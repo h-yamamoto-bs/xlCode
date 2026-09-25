@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
-import type { BookSummary } from '../../../shared/api';
+import type { BookSummary, ExcelMode, OpenVia } from '../../../shared/api';
 import { EXCEL_SIDE, SOURCE_SIDE, STATUS } from '../status';
 import { Icon } from './Icons';
 import { Button } from './ui';
@@ -47,6 +47,7 @@ export function BookView({
   book,
   treeVersion,
   busy,
+  mode,
   onOpenExcel,
   onSync,
   onBuild,
@@ -57,7 +58,8 @@ export function BookView({
   book: BookSummary;
   treeVersion: string;
   busy: boolean;
-  onOpenExcel: () => void;
+  mode: ExcelMode;
+  onOpenExcel: (via: OpenVia) => void;
   onSync: () => void;
   onBuild: () => void;
   onTerminal: () => void;
@@ -88,10 +90,28 @@ export function BookView({
 
       {/* ツールバー */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 pt-1 pb-3">
-        <Button variant="primary" onClick={onOpenExcel} disabled={disabled} title="Sync してから Excel で開く">
-          <Icon.Excel size={15} />
-          Excelで開く
-        </Button>
+        {mode !== 'web' && (
+          <Button
+            variant="primary"
+            onClick={() => onOpenExcel('desktop')}
+            disabled={disabled}
+            title="Sync してからデスクトップ版 Excel で開く"
+          >
+            <Icon.Desktop size={15} />
+            {mode === 'both' ? 'デスクトップで開く' : 'Excelで開く'}
+          </Button>
+        )}
+        {mode !== 'desktop' && (
+          <Button
+            variant={mode === 'web' ? 'primary' : 'secondary'}
+            onClick={() => onOpenExcel('web')}
+            disabled={disabled}
+            title="Sync してから Web 版 Excel（ブラウザ）で開く"
+          >
+            <Icon.Cloud size={15} />
+            {mode === 'both' ? 'Webで開く' : 'Excelで開く'}
+          </Button>
+        )}
         <Button onClick={onSync} disabled={disabled} title="ソースコード → Excel">
           <Icon.Sync size={15} />
           Sync
@@ -116,7 +136,8 @@ export function BookView({
           {book.loadError && <Banner kind="error">ブックを読み込めません: {book.loadError}</Banner>}
           {book.open && (
             <Banner kind="warning">
-              このブックは Excel で開かれています。Build / Sync は Excel を閉じてから実行してください。
+              このブックはデスクトップ版 Excel で開かれています。Build / Sync は Excel
+              を閉じてから実行してください（閉じると自動で解除されます）。
               <div className="text-[12px] text-muted">{book.openReason}</div>
             </Banner>
           )}

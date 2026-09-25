@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
-import type { ProjectInfo } from '../../../shared/api';
+import type { ExcelMode, ProjectInfo } from '../../../shared/api';
+import { ModeLabel } from './SettingsView';
 import { EXCEL_SIDE } from '../status';
 import { Icon } from './Icons';
 
@@ -32,16 +33,16 @@ export function StatusBar({
   busy,
   errors,
   warnings,
-  webMode,
-  onToggleWeb,
+  mode,
+  onMode,
   onProblems,
 }: {
   project: ProjectInfo | null;
   busy: string | null;
   errors: number;
   warnings: number;
-  webMode: boolean;
-  onToggleWeb: () => void;
+  mode: ExcelMode;
+  onMode: () => void;
   onProblems: () => void;
 }) {
   const editing =
@@ -89,12 +90,9 @@ export function StatusBar({
           {stale > 0 ? `#tree 古い (${stale})` : '#tree 最新'}
         </Item>
       )}
-      <Item
-        onClick={onToggleWeb}
-        title="Web 版 Excel で開いている状態は検知できないため、オンのときは Build / Sync 前に閉じたかを確認します"
-      >
-        <Icon.Cloud size={14} />
-        Web版Excel: {webMode ? 'オン' : 'オフ'}
+      <Item onClick={onMode} title="使う Excel（クリックで設定を開く）">
+        {mode === 'web' ? <Icon.Cloud size={14} /> : <Icon.Desktop size={14} />}
+        Excel: {ModeLabel(mode)}
       </Item>
     </div>
   );

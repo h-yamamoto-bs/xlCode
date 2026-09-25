@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { CONFIG_FILE, XLCODE_DIR } from './constants';
 
@@ -13,6 +13,11 @@ export interface XlcodeConfig {
   format: boolean;
   /** Build / Sync 直前に Git へ自動コミットするか */
   autoCommit: boolean;
+  /**
+   * プロジェクトルートに対応する Web 上の URL（Web 版 Excel で開く用）。
+   * 未設定なら Windows の OneDrive 設定から自動で求める。
+   */
+  webUrlBase?: string;
 }
 
 export const DEFAULT_CONFIG: XlcodeConfig = {
@@ -31,4 +36,10 @@ export async function loadConfig(root: string): Promise<XlcodeConfig> {
   } catch {
     return { ...DEFAULT_CONFIG };
   }
+}
+
+/** .xlcode/config.json に保存する（既定値と同じ項目も含めて書く） */
+export async function saveConfig(root: string, config: XlcodeConfig): Promise<void> {
+  await mkdir(path.join(root, XLCODE_DIR), { recursive: true });
+  await writeFile(path.join(root, XLCODE_DIR, CONFIG_FILE), JSON.stringify(config, null, 2) + '\n');
 }
