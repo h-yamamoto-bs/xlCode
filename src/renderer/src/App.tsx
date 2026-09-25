@@ -7,7 +7,7 @@ import { BookView } from './components/BookView';
 import { useDialog } from './components/Dialogs';
 import { Icon } from './components/Icons';
 import { Panel, type LogEntry, type Problem } from './components/Panel';
-import { RulesEditor, RulesList } from './components/RulesView';
+import { RulesEditor, RulesList, type Draft } from './components/RulesView';
 import { EXCEL_MODES, SettingsView } from './components/SettingsView';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
@@ -35,6 +35,17 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<View>('books');
   const [ruleRel, setRuleRel] = useState('Agents.md');
+  // 保存していない Markdown の編集内容（ファイルや画面を切り替えても保持する）
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const setDraft = useCallback((rel: string, d: Draft | null) => {
+    setDrafts((prev) => {
+      const next = { ...prev };
+      if (d) next[rel] = d;
+      else delete next[rel];
+      return next;
+    });
+  }, []);
+  const hasDrafts = Object.keys(drafts).length > 0;
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelTab, setPanelTab] = useState<'problems' | 'output'>('output');
@@ -402,6 +413,26 @@ export function App() {
 
   const openProject = useCallback(
     async (p: string) => {
+      if (hasDrafts) {
+        const { value } = await ask({
+          title: '保存していない Markdown があります',
+          icon: 'warning',
+          body: (
+            <ul className="rounded-[3px] border border-line bg-editor px-3 py-1.5 font-mono text-[12px]">
+              {Object.keys(drafts).map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          ),
+          buttons: [
+            { label: '保存せずにプロジェクトを開く', value: true, variant: 'danger' },
+            { label: 'キャンセル', value: false },
+          ],
+          cancelValue: false,
+        });
+        if (!value) return;
+        setDrafts({});
+      }
       setRoot(p);
       setProject(null);
       setSelected(null);
@@ -437,7 +468,7 @@ export function App() {
       // 6.4: プロジェクトを開いたときに Refresh Tree を自動実行
       await onRefreshTree(p);
     },
-    [recent, log, onRefreshTree, excelMode, ask, setExcelMode],
+    [recent, log, onRefreshTree, excelMode, ask, setExcelMode, hasDrafts, drafts],
   );
 
   const pickProject = useCallback(async () => {
@@ -460,6 +491,17 @@ export function App() {
       clearTimeout(t);
     };
   }, [reload]);
+
+  // 保存していない Markdown があるときにウィンドウを閉じようとしたら、メインプロセスで確認する
+  useEffect(() => {
+    if (!hasDrafts) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasDrafts]);
 
   // デスクトップ版 Excel の開閉を監視し、変わったら状態を更新する
   useEffect(() => {
@@ -595,7 +637,7 @@ export function App() {
                 onCreateBook={onCreateBook}
               />
             ) : (
-              <RulesList project={project} selected={ruleRel} onSelect={setRuleRel} />
+              <RulesList project={project} selected={ruleRel} drafts={drafts} onSelect={setRuleRel} />
             )}
           </aside>
         )}
@@ -645,6 +687,8 @@ export function App() {
                 key={ruleRel}
                 root={project.root}
                 rel={ruleRel}
+                draft={drafts[ruleRel]}
+                onDraft={setDraft}
                 onError={(m) => log('error', m)}
                 onSaved={(rel) => {
                   log('success', `保存しました: ${rel}`);

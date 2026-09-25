@@ -34,6 +34,7 @@ npm run package:win      # Windows 用にパッケージ（dist/ に portable �
 ```sh
 npm install
 npm test                                            # テスト
+npm run test:e2e                                    # GUI の E2E テスト（Linux では xvfb-run npm run test:e2e）
 npx tsx src/cli.ts init   <project>                 # .gitignore と Agents.md を用意
 npx tsx src/cli.ts create <project> app             # app/app.xlcode.xlsx を作成
 npx tsx src/cli.ts status <project> app/app.xlcode.xlsx
@@ -103,6 +104,13 @@ tests/          Vitest
 - **整形されるのは変更時のみ**: ブック作成時、シートには整形後の内容が入るが、ソースファイルは次に Excel 側で変更されて Build されるまで元のまま。
 - **Excel が作れないシート名**: `[id].tsx` のようなファイルはシートにできないため、Sync・ブック作成がエラーで止まる。対象外にするには `.gitignore` に追加する。
 - **No.16（外部書き換えで失われる書式）** は未検証。ExcelJS で作成したブックの往復（数式・先行ゼロ・日付・指数・先頭空白・空行）は文字列のまま保持されることをテストで確認済み。Excel / Copilot が作成したブックでの確認は Windows で行う。
+
+## 壊さないための仕組み
+
+- **ブック・ソース・state.json は一時ファイルに書いてから置き換える**（途中で失敗しても元のファイルは壊れない。一時ファイル名は `~$xlcode-*.tmp`）
+- **書き込み直前にもう一度「開かれていないか」を確認する**（確認〜保存の間に Excel で開かれた場合に備える）
+- **state.json が壊れていたら止める**（黙って初期化すると全ファイルが衝突扱いになるため）。保存のたびに `state.json.bak` を残す
+- **Markdown の保存していない編集はファイルや画面を切り替えても残す**。ほかの場所でファイルが変更されたら知らせる。閉じるときに確認する
 
 ## 技術スタックの補足
 

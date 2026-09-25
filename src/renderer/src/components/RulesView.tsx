@@ -8,13 +8,21 @@ import { Button } from './ui';
 /** Agents.md が厚すぎると Copilot が生成を停止する（1.4）ための目安 */
 const LINE_LIMIT = 100;
 
+/** 保存していない編集内容。base は編集を始めたときのディスク上の内容 */
+export interface Draft {
+  text: string;
+  base: string;
+}
+
 export function RulesList({
   project,
   selected,
+  drafts,
   onSelect,
 }: {
   project: ProjectInfo;
   selected: string;
+  drafts: Record<string, Draft>;
   onSelect: (rel: string) => void;
 }) {
   const items = [
@@ -43,6 +51,11 @@ export function RulesList({
             <Icon.Rules size={14} className="shrink-0 text-info" />
             <span className="truncate">{it.label}</span>
             <span className="truncate text-[11px] text-faint">{it.sub}</span>
+            {drafts[it.rel] && (
+              <span className="ml-auto text-fg" title="保存していない変更があります">
+                ●
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -53,35 +66,63 @@ export function RulesList({
 export function RulesEditor({
   root,
   rel,
+  draft,
+  onDraft,
   onSaved,
   onError,
 }: {
   root: string;
   rel: string;
+  draft: Draft | undefined;
+  onDraft: (rel: string, draft: Draft | null) => void;
   onSaved: (rel: string) => void;
   onError: (msg: string) => void;
 }) {
-  const [text, setText] = useState('');
-  const [saved, setSaved] = useState('');
+  // null = 読み込み中
+  const [saved, setSaved] = useState<string | null>(null);
   const [exists, setExists] = useState(true);
   const gutter = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     unwrap(api.readRuleFile(root, rel))
       .then((t) => {
-        setText(t ?? '');
         setSaved(t ?? '');
         setExists(t !== null);
       })
       .catch((e: Error) => onError(e.message));
   }, [root, rel, onError]);
 
-  const dirty = text !== saved;
+  // ウィンドウに戻ったとき（エディタで編集した後など）にディスクの内容を読み直す
+  useEffect(() => {
+    const onFocus = () => {
+      void api.readRuleFile(root, rel).then((r) => {
+        if (r.ok) {
+          setSaved(r.value ?? '');
+          setExists(r.value !== null);
+        }
+      });
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [root, rel]);
+
+  const text = draft?.text ?? saved ?? '';
+  const dirty = draft !== undefined;
+  // 下書きを始めた後に、エディタなど別の場所でファイルが変更された
+  const changedOnDisk = draft !== undefined && saved !== null && draft.base !== saved;
+
+  const edit = (next: string) => {
+    if (saved === null) return;
+    if (next === saved) onDraft(rel, null);
+    else onDraft(rel, { text: next, base: draft?.base ?? saved });
+  };
   const save = async () => {
+    if (!dirty) return;
     try {
       await unwrap(api.writeRuleFile(root, rel, text));
       setSaved(text);
       setExists(true);
+      onDraft(rel, null);
       onSaved(rel);
     } catch (e) {
       onError((e as Error).message);
@@ -114,6 +155,15 @@ export function RulesEditor({
           : 'このディレクトリ固有のルール。保存後に Sync すると、ブックの LocalAgents.md シートへ反映されます。'}
         {!exists && ' ファイルはまだありません。保存すると作成します。'}
       </div>
+      {changedOnDisk && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-warn/50 bg-[#4d3b00]/50 px-4 py-1.5 text-[12px]">
+          <Icon.Warning size={14} className="shrink-0 text-warn" />
+          <span className="flex-1">
+            編集中に、このファイルがほかの場所で変更されました。保存するとほかの場所での変更は上書きされます。
+          </span>
+          <Button onClick={() => onDraft(rel, null)}>編集を破棄して読み込み直す</Button>
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 bg-editor">
         <div
           ref={gutter}
@@ -128,7 +178,8 @@ export function RulesEditor({
           className="min-h-0 flex-1 resize-none bg-transparent py-2 pr-4 font-mono text-[13px] leading-[19px] text-fg outline-none"
           spellCheck={false}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          readOnly={saved === null}
+          onChange={(e) => edit(e.target.value)}
           onScroll={(e) => {
             if (gutter.current) gutter.current.scrollTop = e.currentTarget.scrollTop;
           }}

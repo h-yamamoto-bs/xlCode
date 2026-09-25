@@ -1,4 +1,5 @@
-import { rm, writeFile } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
+import { atomicWrite } from './atomic';
 import type { Canon } from './canonical';
 import { CONFLICT_PREFIX } from './constants';
 import { autoCommit, isGitRepo, uncommittedChanges } from './git';
@@ -42,6 +43,15 @@ function shrinkMessage(ctx: ProjectContext, e: FileEntry, next: Canon): string |
   if (lineDrop < th && charDrop < th) return null;
   const pct = (v: number) => `${Math.round(v * 100)}%`;
   return `${e.name}: ${prev.lines}→${next.lines} 行（-${pct(lineDrop)}）、${prev.chars}→${next.chars} 文字（-${pct(charDrop)}）`;
+}
+
+/** 書き込み直前の再確認（確認〜保存の間に Excel で開かれた場合に備える） */
+async function assertClosed(ref: BookRef, r: OpResult, detail: string): Promise<boolean> {
+  const open = await checkBookOpen(ref.abs);
+  if (!open.open) return true;
+  r.errors.push(`${ref.rel} が途中で開かれたため中断しました。${detail}（${open.reason}）`);
+  r.status = 'error';
+  return false;
 }
 
 async function preflight(ctx: ProjectContext, ref: BookRef, r: OpResult): Promise<Scan | null> {
@@ -185,6 +195,7 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
   const conflicts = scan.entries.filter((e) => e.status === 'conflict');
   if (conflicts.length > 0) {
     recordConflicts(scan, bs, conflicts, r);
+    if (!(await assertClosed(ref, r, '何も変更していません'))) return r;
     await scan.book.save(ref.abs);
     await saveState(root, ctx.state);
     r.errors.push(
@@ -212,13 +223,14 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
   const useGit = await gitConfirmations(ctx, ref, r);
   if (r.confirmations.length > 0 && !opts.confirmed) return { ...r, status: 'confirm' };
   if (useGit && !(await commitBefore(ctx, ref, 'Build', r))) return r;
+  if (!(await assertClosed(ref, r, 'ソースは変更していません'))) return r;
 
   let bookChanged = false;
   for (const e of scan.entries) {
     switch (e.status) {
       case 'excel-changed':
       case 'excel-new': {
-        await writeFile(e.srcAbs, e.xl!.text);
+        await atomicWrite(e.srcAbs, e.xl!.text);
         bs.files[e.name] = toState(e.xl!);
         r.changes.push({ action: 'write-file', target: e.name });
         const lines = textToLines(e.xl!.text);
@@ -251,6 +263,12 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
     r.changes.push({ action: 'delete-file', target: d.fileName }, { action: 'delete-sheet', target: d.sheet });
     bookChanged = true;
   }
+  // ソースは出力済み。ブックが保存できなくても、次回の Build / Sync で両側一致として扱われる
+  if (
+    bookChanged &&
+    !(await assertClosed(ref, r, 'ソースへの出力は完了しています。Excel を閉じて再度 Build してください'))
+  )
+    return r;
   if (bookChanged) await scan.book.save(ref.abs);
   bs.lastBuildAt = new Date().toISOString();
   await saveState(root, ctx.state);
@@ -315,6 +333,7 @@ export async function sync(root: string, bookAbs: string, opts: SyncOptions = {}
     }
   }
   if (conflicts.length > 0) recordConflicts(scan, bs, conflicts, r);
+  if (bookChanged && !(await assertClosed(ref, r, 'ブックは変更していません'))) return r;
   if (bookChanged) await scan.book.save(ref.abs);
   bs.lastSyncAt = new Date().toISOString();
   await saveState(root, ctx.state);

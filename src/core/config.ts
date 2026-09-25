@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { atomicWrite } from './atomic';
 import { CONFIG_FILE, XLCODE_DIR } from './constants';
 
 export interface XlcodeConfig {
@@ -28,18 +29,29 @@ export const DEFAULT_CONFIG: XlcodeConfig = {
   autoCommit: true,
 };
 
-/** .xlcode/config.json を読み込み、既定値とマージする */
+/** .xlcode/config.json を読み込み、既定値とマージする。壊れていれば例外（設定が黙って無視されないように） */
 export async function loadConfig(root: string): Promise<XlcodeConfig> {
+  let raw: string;
   try {
-    const raw = await readFile(path.join(root, XLCODE_DIR, CONFIG_FILE), 'utf8');
-    return { ...DEFAULT_CONFIG, ...(JSON.parse(raw) as Partial<XlcodeConfig>) };
-  } catch {
-    return { ...DEFAULT_CONFIG };
+    raw = await readFile(path.join(root, XLCODE_DIR, CONFIG_FILE), 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { ...DEFAULT_CONFIG };
+    throw e;
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`${XLCODE_DIR}/${CONFIG_FILE} が JSON として読めません。修正するか削除してください`);
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${XLCODE_DIR}/${CONFIG_FILE} の形式が違います。修正するか削除してください`);
+  }
+  return { ...DEFAULT_CONFIG, ...(parsed as Partial<XlcodeConfig>) };
 }
 
 /** .xlcode/config.json に保存する（既定値と同じ項目も含めて書く） */
 export async function saveConfig(root: string, config: XlcodeConfig): Promise<void> {
   await mkdir(path.join(root, XLCODE_DIR), { recursive: true });
-  await writeFile(path.join(root, XLCODE_DIR, CONFIG_FILE), JSON.stringify(config, null, 2) + '\n');
+  await atomicWrite(path.join(root, XLCODE_DIR, CONFIG_FILE), JSON.stringify(config, null, 2) + '\n');
 }

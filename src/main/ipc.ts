@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import {
@@ -20,6 +20,7 @@ import {
   sync,
   type XlcodeConfig,
 } from '../core';
+import { atomicWrite } from '../core/atomic';
 import { isBookFile, isIgnored, toPosixRel } from '../core/fsutil';
 import type { BookSummary, OpenVia, ProjectInfo, Result } from '../shared/api';
 import { joinUrl, readSyncRoots, toWebUrl } from './onedrive';
@@ -170,6 +171,6 @@ export function registerIpc(): void {
     wrap(() => readFile(ruleFile(root, rel), 'utf8').catch(() => null)),
   );
   ipcMain.handle('writeRuleFile', (_e, root: string, rel: string, text: string) =>
-    wrap(() => writeFile(ruleFile(root, rel), text)),
+    wrap(() => atomicWrite(ruleFile(root, rel), text)),
   );
 }

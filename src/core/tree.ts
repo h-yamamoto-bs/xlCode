@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { atomicWrite } from './atomic';
 import path from 'node:path';
 import type { Ignore } from 'ignore';
 import { AGENTS_SHEET, TREE_FILE, TREE_SHEET, TREE_VERSION_PREFIX, XLCODE_DIR } from './constants';
@@ -77,7 +78,7 @@ export async function refreshTree(root: string): Promise<RefreshResult> {
   const ig = await loadIgnore(root);
   const tree = await computeTree(root, ig);
   await mkdir(path.join(root, XLCODE_DIR), { recursive: true });
-  await writeFile(path.join(root, XLCODE_DIR, TREE_FILE), [tree.header, ...tree.lines].join('\n') + '\n');
+  await atomicWrite(path.join(root, XLCODE_DIR, TREE_FILE), [tree.header, ...tree.lines].join('\n') + '\n');
   const agents = await readRootAgents(root);
 
   const books: BookTreeResult[] = [];
@@ -91,6 +92,11 @@ export async function refreshTree(root: string): Promise<RefreshResult> {
       }
       const book = await Book.load(abs);
       applyTreeToBook(book, tree, agents);
+      const again = await checkBookOpen(abs);
+      if (again.open) {
+        books.push({ book: rel, ok: false, error: `開かれています（${again.reason}）` });
+        continue;
+      }
       await book.save(abs);
       books.push({ book: rel, ok: true });
     } catch (e) {

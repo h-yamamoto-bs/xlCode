@@ -1,5 +1,6 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import ExcelJS from 'exceljs';
+import { atomicWrite } from './atomic';
 import { MAX_CELL_CHARS } from './constants';
 
 export interface CellIssue {
@@ -59,7 +60,7 @@ export class Book {
 
   async save(file: string): Promise<void> {
     const buf = await this.wb.xlsx.writeBuffer();
-    await writeFile(file, Buffer.from(buf as ArrayBuffer));
+    await atomicWrite(file, Buffer.from(buf as ArrayBuffer));
   }
 
   sheetNames(): string[] {
