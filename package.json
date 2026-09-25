@@ -1,0 +1,28 @@
+{
+  "name": "xlcode",
+  "version": "1.0.0",
+  "description": "Excel in Copilot を疑似コーディングエージェントとして使うための Build / Sync ツール",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "cli": "tsx src/cli.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "eslint": "^10.11.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "ignore": "^7.0.10",
+    "prettier": "3.9.9"
+  },
+  "type": "module"
+}
