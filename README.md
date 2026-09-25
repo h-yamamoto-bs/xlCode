@@ -11,6 +11,32 @@ Excel in Copilot（Web）を疑似的なコーディングエージェントと�
 | 2 | Electron + React GUI（VS Code 風ダークテーマ） | ✅ 完了 |
 | 3 | Windows 固有機能（Excel 起動・OneDrive 同期待ち・ターミナル起動） | 未着手（Windows での確認が必要） |
 
+## npm install できない環境で使う
+
+配布物は 2 種類。
+
+| 配布物 | 中身 | 必要なもの |
+|---|---|---|
+| `xlCode 1.0.0.exe` | そのまま起動できる Windows 版（portable） | なし |
+| `xlCode-src-win.zip` | ソース一式 + **Windows x64 用**の `node_modules` | Node.js 22 以上 |
+
+`node_modules` は OS ごとに中身が違う（Electron 本体、esbuild・Rollup・Tailwind・lightningcss のネイティブ部品）。
+Windows 用は Linux 上で次のように作る。
+
+```sh
+npm_config_platform=win32 npm_config_arch=x64 npm ci --os=win32 --cpu=x64
+npm_config_platform=win32 npm_config_arch=x64 node node_modules/electron/install.js
+```
+
+ソース版の使い方（Windows、npm install 不要）:
+
+```bat
+npm run dev          :: 開発起動
+npm test             :: テスト
+npm run test:e2e     :: GUI の E2E テスト
+npm run package:win  :: exe を作る（electron-builder は NSIS などを初回にダウンロードする。オフラインでは不可）
+```
+
 ## 使い方（GUI）
 
 ```sh

@@ -10,6 +10,8 @@ win:
   target:
     - portable
     - nsis
+  # Linux からのクロスビルドでは exe のメタデータ編集（wine が必要）を行わない
+  signAndEditExecutable: false
 mac:
   target: dmg
 linux:

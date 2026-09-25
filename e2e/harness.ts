@@ -44,10 +44,12 @@ export interface Running {
  */
 export async function launch(root: string, excelMode: string | null = 'both'): Promise<Running> {
   const userData = await mkdtemp(path.join(tmpdir(), 'xlcode-e2e-'));
-  const args = [appDir];
+  // XLCODE_E2E_EXE にパッケージ済みの実行ファイルを指定すると、それを対象にテストする
+  const exe = process.env.XLCODE_E2E_EXE;
+  const args = exe ? [] : [appDir];
   if (process.platform === 'linux' && process.getuid?.() === 0) args.unshift('--no-sandbox');
   const app = await _electron.launch({
-    executablePath: electronPath,
+    executablePath: exe ?? electronPath,
     args,
     env: { ...process.env, XLCODE_USER_DATA: userData },
   });
