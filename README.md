@@ -8,8 +8,24 @@ Excel in Copilot（Web）を疑似的なコーディングエージェントと�
 |---|---|---|
 | 1 | コア処理（Build / Sync / Refresh Tree / 衝突 / 省略検知 / Git 自動コミット）＋テスト | ✅ 完了 |
 | 1 | 動作確認用 CLI | ✅ 完了 |
-| 2 | Electron + React GUI | 未着手 |
+| 2 | Electron + React GUI（VS Code 風ダークテーマ） | ✅ 完了 |
 | 3 | Windows 固有機能（Excel 起動・OneDrive 同期待ち・ターミナル起動） | 未着手（Windows での確認が必要） |
+
+## 使い方（GUI）
+
+```sh
+npm install
+npm run dev              # 開発起動
+npm run package:win      # Windows 用にパッケージ（dist/ に portable と installer）
+```
+
+- **エクスプローラー**: ブック一覧と各ファイルの状態（E = Excel側で編集中、S = エディタ側で変更、C = 両側で変更）
+- **Excelで開く**: Sync してから Excel を起動（5.5-2）
+- **Build / Sync**: 確認が必要な場合（未コミット変更・省略検知・削除）はダイアログを表示。Sync で未 Build 変更があれば「先に Build / 破棄 / 中止」を選択
+- **Web版Excel モード**（ステータスバーで切り替え、既定オン）: Web 版で開いている状態は検知できないため、Build / Sync 前に閉じたかを確認
+- **ルール**: Agents.md（100 行超で警告）と各 LocalAgents.md を編集
+- プロジェクトを開いたときに Refresh Tree を自動実行（6.4）。ウィンドウに戻ったときに状態を再読み込み
+- ショートカット: Ctrl+O 開く / Ctrl+B Build / Ctrl+Shift+S Sync / Ctrl+J パネル
 
 ## 使い方（CLI）
 
@@ -37,6 +53,10 @@ src/core/
   state.ts      .xlcode/state.json
   git.ts        自動コミット・未コミット変更の検出
   lock.ts       ブックが開かれているかの判定
+src/main/       Electron メインプロセス（IPC・Excel 起動・ターミナル起動）
+src/preload/    contextBridge（sandbox 有効）
+src/renderer/   React + Tailwind の画面
+src/shared/     メイン⇔画面の型
 src/cli.ts      動作確認用 CLI
 tests/          Vitest
 ```
@@ -80,6 +100,11 @@ tests/          Vitest
 - **整形されるのは変更時のみ**: ブック作成時、シートには整形後の内容が入るが、ソースファイルは次に Excel 側で変更されて Build されるまで元のまま。
 - **Excel が作れないシート名**: `[id].tsx` のようなファイルはシートにできないため、Sync・ブック作成がエラーで止まる。対象外にするには `.gitignore` に追加する。
 - **No.16（外部書き換えで失われる書式）** は未検証。ExcelJS で作成したブックの往復（数式・先行ゼロ・日付・指数・先頭空白・空行）は文字列のまま保持されることをテストで確認済み。Excel / Copilot が作成したブックでの確認は Windows で行う。
+
+## 技術スタックの補足
+
+- Vite は 7 系（electron-vite が Vite 8 未対応のため）
+- TypeScript は 6.0 系（typescript-eslint が 7 系未対応のため）
 
 ## 受け入れ基準（13章）
 

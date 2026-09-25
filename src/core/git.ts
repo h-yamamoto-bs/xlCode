@@ -41,3 +41,17 @@ export async function autoCommit(root: string, dirRel: string, message: string):
   await git(root, ['commit', '-q', '-m', message, '--', ...spec]);
   return true;
 }
+
+export interface GitSummary {
+  repo: boolean;
+  branch?: string;
+  changes: string[];
+}
+
+/** GUI のステータスバー用 */
+export async function gitSummary(root: string): Promise<GitSummary> {
+  if (!(await isGitRepo(root))) return { repo: false, changes: [] };
+  const branch = (await git(root, ['branch', '--show-current'])).trim() || '(detached)';
+  const out = await git(root, ['status', '--porcelain=v1', '--untracked-files=all']);
+  return { repo: true, branch, changes: out.split('\n').filter((l) => l.trim() !== '') };
+}

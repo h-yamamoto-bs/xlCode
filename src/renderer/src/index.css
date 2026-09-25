@@ -1,0 +1,84 @@
+@import 'tailwindcss';
+
+/* VS Code Dark Modern に準拠した配色 */
+@theme {
+  --color-editor: #1f1f1f;
+  --color-side: #181818;
+  --color-line: #2b2b2b;
+  --color-hover: #2a2d2e;
+  --color-selected: #37373d;
+  --color-focus: #04395e;
+  --color-input: #313131;
+  --color-widget: #202020;
+  --color-fg: #cccccc;
+  --color-fg-strong: #e7e7e7;
+  --color-muted: #9d9d9d;
+  --color-faint: #6e7681;
+  --color-accent: #0078d4;
+  --color-accent-hover: #026ec1;
+  --color-link: #4daafc;
+  --color-modified: #e2c08d;
+  --color-added: #73c991;
+  --color-deleted: #f85149;
+  --color-conflict: #e4676b;
+  --color-info: #4fc1ff;
+  --color-warn: #cca700;
+  --color-excel: #3fb56b;
+  --font-sans: 'Segoe UI', 'Yu Gothic UI', 'Meiryo UI', system-ui, -apple-system, sans-serif;
+  --font-mono: Consolas, 'Cascadia Code', 'BIZ UDGothic', ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-editor);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  user-select: none;
+}
+
+textarea,
+input,
+.selectable {
+  user-select: text;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.4);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 100, 0.7);
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 1s linear infinite;
+}

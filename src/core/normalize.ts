@@ -15,7 +15,10 @@ function isMarkdown(fileName: string): boolean {
  * - 末尾の空行を除き、ファイル末尾に改行を1つだけ付与（空ファイルは空のまま）
  */
 export function normalizeText(text: string, fileName: string, opts: NormalizeOptions): string {
-  let lines = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split('\n');
+  let lines = text
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n');
   if (opts.trimTrailingWhitespace && !isMarkdown(fileName)) {
     lines = lines.map((l) => l.replace(/[ \t]+$/, ''));
   }

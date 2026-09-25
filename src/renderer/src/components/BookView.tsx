@@ -1,0 +1,201 @@
+import clsx from 'clsx';
+import type { ReactNode } from 'react';
+import type { BookSummary } from '../../../shared/api';
+import { EXCEL_SIDE, SOURCE_SIDE, STATUS } from '../status';
+import { Icon } from './Icons';
+import { Button } from './ui';
+
+function Banner({
+  kind,
+  children,
+  action,
+}: {
+  kind: 'error' | 'warning' | 'info';
+  children: ReactNode;
+  action?: ReactNode;
+}) {
+  const style = {
+    error: 'border-deleted/60 bg-[#5a1d1d]/60',
+    warning: 'border-warn/50 bg-[#4d3b00]/50',
+    info: 'border-accent/60 bg-[#063b49]/50',
+  }[kind];
+  const icon = {
+    error: <Icon.Error className="text-deleted" />,
+    warning: <Icon.Warning className="text-warn" />,
+    info: <Icon.Info className="text-info" />,
+  }[kind];
+  return (
+    <div className={clsx('flex items-start gap-2.5 rounded-[3px] border px-3 py-2 leading-relaxed', style)}>
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <div className="selectable min-w-0 flex-1">{children}</div>
+      {action}
+    </div>
+  );
+}
+
+function Stat({ label, value, color, hint }: { label: string; value: number; color: string; hint: string }) {
+  return (
+    <div className="rounded-[3px] border border-line bg-side px-4 py-3">
+      <div className={clsx('text-[22px] font-light tabular-nums', value > 0 ? color : 'text-faint')}>{value}</div>
+      <div className="text-[12px] text-fg">{label}</div>
+      <div className="text-[11px] text-faint">{hint}</div>
+    </div>
+  );
+}
+
+export function BookView({
+  book,
+  treeVersion,
+  busy,
+  onOpenExcel,
+  onSync,
+  onBuild,
+  onTerminal,
+  onReveal,
+  onRefreshTree,
+}: {
+  book: BookSummary;
+  treeVersion: string;
+  busy: boolean;
+  onOpenExcel: () => void;
+  onSync: () => void;
+  onBuild: () => void;
+  onTerminal: () => void;
+  onReveal: () => void;
+  onRefreshTree: () => void;
+}) {
+  const files = book.files ?? [];
+  const excel = files.filter((f) => EXCEL_SIDE.includes(f.status));
+  const source = files.filter((f) => SOURCE_SIDE.includes(f.status));
+  const conflict = files.filter((f) => f.status === 'conflict');
+  const clean = files.filter((f) => f.status === 'clean');
+  const fileName = book.rel.split('/').pop()!;
+  const disabled = busy || book.open;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {/* パンくず */}
+      <div className="flex h-[22px] shrink-0 items-center gap-1 px-4 text-[12px] text-muted">
+        {(book.dirRel ? book.dirRel.split('/') : ['.']).map((seg, i) => (
+          <span key={i} className="flex items-center gap-1">
+            {seg}
+            <Icon.ChevronRight size={12} />
+          </span>
+        ))}
+        <Icon.Book size={13} className="text-excel" />
+        <span className="text-fg">{fileName}</span>
+      </div>
+
+      {/* ツールバー */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 pt-1 pb-3">
+        <Button variant="primary" onClick={onOpenExcel} disabled={disabled} title="Sync してから Excel で開く">
+          <Icon.Excel size={15} />
+          Excelで開く
+        </Button>
+        <Button onClick={onSync} disabled={disabled} title="ソースコード → Excel">
+          <Icon.Sync size={15} />
+          Sync
+        </Button>
+        <Button onClick={onBuild} disabled={disabled} title="Excel → ソースコード">
+          <Icon.Build size={15} />
+          Build
+        </Button>
+        <div className="mx-1 h-4 w-px bg-line" />
+        <Button onClick={onTerminal} disabled={busy} title="OS のターミナルをこのディレクトリで開く">
+          <Icon.Terminal size={15} />
+          ターミナル
+        </Button>
+        <Button onClick={onReveal} disabled={busy} title="フォルダを表示">
+          <Icon.Reveal size={15} />
+          フォルダ
+        </Button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
+        <div className="mx-auto flex max-w-[980px] flex-col gap-3">
+          {book.loadError && <Banner kind="error">ブックを読み込めません: {book.loadError}</Banner>}
+          {book.open && (
+            <Banner kind="warning">
+              このブックは Excel で開かれています。Build / Sync は Excel を閉じてから実行してください。
+              <div className="text-[12px] text-muted">{book.openReason}</div>
+            </Banner>
+          )}
+          {(book.conflictSheets?.length ?? 0) > 0 && (
+            <Banner kind="error">
+              未解決の衝突シートがあります: <span className="font-mono">{book.conflictSheets!.join(', ')}</span>
+              <div className="text-[12px] text-muted">
+                Copilot に「A列とB列を統合して元のシートに書き、衝突シートを削除して」と指示してください。解決するまで
+                Build できません。
+              </div>
+            </Banner>
+          )}
+          {book.errors?.map((e) => (
+            <Banner key={e} kind="error">
+              {e}
+            </Banner>
+          ))}
+          {book.treeVersion !== treeVersion && (
+            <Banner
+              kind="info"
+              action={
+                <Button onClick={onRefreshTree} disabled={busy} className="shrink-0">
+                  Refresh Tree
+                </Button>
+              }
+            >
+              #tree が最新ではありません。Refresh Tree を実行してください。
+            </Banner>
+          )}
+          {(book.deletes?.length ?? 0) > 0 && (
+            <Banner kind="warning">
+              削除マーク付きのシート: <span className="font-mono">{book.deletes!.join(', ')}</span>（Build
+              時に確認のうえ削除します）
+            </Banner>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Stat label="Excel側で編集中" value={excel.length} color="text-modified" hint="Build で反映" />
+            <Stat label="エディタ側で変更" value={source.length} color="text-info" hint="Sync で取り込み" />
+            <Stat label="両側で変更" value={conflict.length} color="text-conflict" hint="衝突シートで統合" />
+            <Stat label="同期済み" value={clean.length} color="text-fg" hint={`全 ${files.length} ファイル`} />
+          </div>
+
+          <div className="overflow-hidden rounded-[3px] border border-line">
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="h-[26px] bg-side text-[11px] text-muted uppercase">
+                  <th className="w-10 px-3 font-normal" />
+                  <th className="px-2 font-normal">ファイル（シート）</th>
+                  <th className="px-2 font-normal">状態</th>
+                  <th className="px-3 font-normal">次の操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {files.map((f) => {
+                  const m = STATUS[f.status];
+                  return (
+                    <tr key={f.name} className="h-[24px] border-t border-line hover:bg-hover">
+                      <td className={clsx('px-3 text-center font-mono text-[12px]', m.color)}>
+                        {m.letter || <Icon.Check size={12} className="inline text-faint" />}
+                      </td>
+                      <td className="selectable px-2 font-mono text-[12.5px] text-fg">{f.name}</td>
+                      <td className={clsx('px-2 text-[12px]', m.color)}>{m.label}</td>
+                      <td className="px-3 text-[12px] text-muted">{m.hint}</td>
+                    </tr>
+                  );
+                })}
+                {files.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-3 text-[12px] text-faint">
+                      コードシートがありません
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

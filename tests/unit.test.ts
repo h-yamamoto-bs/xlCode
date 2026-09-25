@@ -11,7 +11,7 @@ const opts = { trimTrailingWhitespace: true };
 
 describe('正規化', () => {
   it('CRLF・BOM・末尾空行・行末空白を正規化する', () => {
-    expect(normalizeText('﻿a  \r\nb\r\n\r\n\r\n', 'a.ts', opts)).toBe('a\nb\n');
+    expect(normalizeText('\uFEFFa  \r\nb\r\n\r\n\r\n', 'a.ts', opts)).toBe('a\nb\n');
     expect(normalizeText('a', 'a.ts', opts)).toBe('a\n');
     expect(normalizeText('', 'a.ts', opts)).toBe('');
     expect(normalizeText('\n\n', 'a.ts', opts)).toBe('');
