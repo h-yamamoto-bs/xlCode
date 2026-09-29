@@ -37,6 +37,20 @@ export function validateFileName(name: string): string | null {
   if (bad.length > 0) return `「${name}」に使用できない記号 ${bad.join(' ')} が含まれています`;
   if (name.startsWith("'") || name.endsWith("'")) return `「${name}」の先頭・末尾にアポストロフィは使えません`;
   if (name.startsWith(RESERVED_PREFIX)) return `「${name}」は予約接頭辞「#」で始まっています`;
+  return windowsNameError(name);
+}
+
+/** Windows の予約デバイス名（拡張子が付いていても使えない） */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
+
+/** Windows でファイル名に使えないかを検証する */
+export function windowsNameError(name: string): string | null {
+  const bad = ['<', '>', '"', '|'].filter((c) => name.includes(c));
+  if (bad.length > 0) return `「${name}」に Windows で使えない記号 ${bad.join(' ')} が含まれています`;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f]/.test(name)) return `「${name}」に制御文字が含まれています`;
+  if (/[. ]$/.test(name)) return `「${name}」は末尾が「.」または空白のため Windows で使えません`;
+  if (WINDOWS_RESERVED.test(name)) return `「${name}」は Windows の予約名のため使えません`;
   return null;
 }
 

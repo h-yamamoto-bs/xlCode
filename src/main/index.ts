@@ -48,6 +48,18 @@ function createWindow(): void {
 // 自動テストでは設定（localStorage など）の保存先を分ける
 if (process.env.XLCODE_USER_DATA) app.setPath('userData', process.env.XLCODE_USER_DATA);
 
+// 同じプロジェクトを2つのウィンドウから操作すると処理がぶつかるため、1つだけ起動する
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  });
+}
+
 app.whenReady().then(() => {
   registerIpc();
   createWindow();

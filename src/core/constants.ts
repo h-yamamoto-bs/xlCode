@@ -25,6 +25,8 @@ export const CONFIG_FILE = 'config.json';
 /** Excel の制約 */
 export const MAX_SHEET_NAME = 31;
 export const MAX_CELL_CHARS = 32767;
+/** Excel が開けるファイルのフルパスの最大文字数（フォルダ＋ファイル名） */
+export const EXCEL_MAX_PATH = 218;
 export const FORBIDDEN_CHARS: readonly string[] = [':', '\\', '/', '?', '*', '[', ']'];
 
 /** #tree 1行目の接頭辞 */

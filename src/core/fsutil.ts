@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import ignore, { type Ignore } from 'ignore';
-import { AGENTS_SHEET, BOOK_SUFFIX, XLCODE_DIR } from './constants';
+import { AGENTS_SHEET, BOOK_SUFFIX, EXCEL_MAX_PATH, XLCODE_DIR } from './constants';
 
 /** .gitignore に関係なく常に除外するもの */
 const ALWAYS_IGNORED = ['.git/', `${XLCODE_DIR}/`, '~$*'];
@@ -28,6 +28,21 @@ export function isIgnored(ig: Ignore, relPosix: string, isDir: boolean): boolean
 
 export function isBookFile(name: string): boolean {
   return name.endsWith(BOOK_SUFFIX) && !name.startsWith('~$');
+}
+
+/**
+ * OneDrive の同期がぶつかったときの複製（例: app.xlcode-PC名.xlsx）や、
+ * コピーでできたブック（例: app.xlcode (1).xlsx）。管理対象ではないが、編集内容が紛れている可能性がある
+ */
+export function isBookCopy(name: string): boolean {
+  const n = name.toLowerCase();
+  return !name.startsWith('~$') && n.includes('.xlcode') && n.endsWith('.xlsx') && !isBookFile(name);
+}
+
+/** Excel が開けないほど長いパスならメッセージを返す */
+export function excelPathError(abs: string): string | null {
+  if (abs.length <= EXCEL_MAX_PATH) return null;
+  return `ブックのパスが ${abs.length} 文字あり、Excel が開ける ${EXCEL_MAX_PATH} 文字を超えています。フォルダを浅くするか名前を短くしてください: ${abs}`;
 }
 
 export type TextRead = { kind: 'text'; text: string } | { kind: 'binary' };

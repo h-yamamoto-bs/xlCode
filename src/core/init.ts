@@ -1,7 +1,7 @@
 import { access, appendFile, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { AGENTS_SHEET, BOOK_SUFFIX, LOCAL_AGENTS_SHEET, XLCODE_DIR } from './constants';
-import { listSourceFiles, readTextFile } from './fsutil';
+import { excelPathError, listSourceFiles, readTextFile } from './fsutil';
 import { textToLines } from './normalize';
 import { bookRef, booksInDir, openProject } from './project';
 import { bookState, saveState } from './state';
@@ -68,6 +68,8 @@ export async function createBook(root: string, dirAbs: string): Promise<CreateBo
   const existing = await booksInDir(dirAbs);
   if (existing.length > 0) throw new Error(`既にブックがあります: ${existing.join(', ')}`);
   const bookAbs = path.join(dirAbs, `${path.basename(path.resolve(dirAbs))}${BOOK_SUFFIX}`);
+  const longPath = excelPathError(bookAbs);
+  if (longPath) throw new Error(longPath);
   const ctx = await openProject(root);
   const ref = bookRef(root, bookAbs);
 

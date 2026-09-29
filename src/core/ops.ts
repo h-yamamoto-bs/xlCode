@@ -84,7 +84,7 @@ async function gitConfirmations(ctx: ProjectContext, ref: BookRef, r: OpResult):
     r.confirmations.push({
       kind: 'uncommitted',
       message: '未コミットの変更があります。実行前に自動コミットします',
-      files: changes.map((l) => l.slice(3)),
+      files: changes,
     });
   }
   return true;

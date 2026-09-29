@@ -21,7 +21,7 @@ import {
   type XlcodeConfig,
 } from '../core';
 import { atomicWrite } from '../core/atomic';
-import { isBookFile, isIgnored, toPosixRel } from '../core/fsutil';
+import { excelPathError, isBookFile, isIgnored, toPosixRel } from '../core/fsutil';
 import type { BookSummary, OpenVia, ProjectInfo, Result } from '../shared/api';
 import { joinUrl, readSyncRoots, toWebUrl } from './onedrive';
 
@@ -63,7 +63,7 @@ async function loadProject(root: string): Promise<ProjectInfo> {
   for (const abs of await findBooks(root, ig)) {
     const rel = toPosixRel(root, abs);
     const dirRel = toPosixRel(root, path.dirname(abs));
-    const open = await checkBookOpen(abs);
+    const open = await checkBookOpen(abs, { quick: true });
     try {
       books.push({ ...(await bookStatus(root, abs)), rel, dirRel, open: open.open, openReason: open.reason });
     } catch (e) {
@@ -141,6 +141,8 @@ export function registerIpc(): void {
   ipcMain.handle('openInExcel', (_e, root: string, book: string, via: OpenVia) =>
     wrap(async () => {
       const abs = inside(root, book);
+      const longPath = excelPathError(abs);
+      if (longPath) throw new Error(longPath);
       if (via === 'desktop') {
         // 関連付けられたアプリ（通常はデスクトップ版 Excel）で開く
         const err = await shell.openPath(abs);
@@ -155,7 +157,7 @@ export function registerIpc(): void {
   ipcMain.handle('bookLocks', (_e, root: string, books: string[]) =>
     wrap(async () => {
       const out: Record<string, boolean> = {};
-      for (const b of books) out[b] = (await checkBookOpen(inside(root, b))).open;
+      for (const b of books) out[b] = (await checkBookOpen(inside(root, b), { quick: true })).open;
       return out;
     }),
   );

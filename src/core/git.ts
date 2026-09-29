@@ -4,7 +4,12 @@ import { promisify } from 'node:util';
 const exec = promisify(execFile);
 
 async function git(root: string, args: string[]): Promise<string> {
-  const { stdout } = await exec('git', args, { cwd: root, maxBuffer: 16 * 1024 * 1024 });
+  // core.quotepath=false: 日本語のファイル名を \346\227… のようにエスケープしない
+  const { stdout } = await exec('git', ['-c', 'core.quotepath=false', ...args], {
+    cwd: root,
+    maxBuffer: 16 * 1024 * 1024,
+    windowsHide: true,
+  });
   return stdout;
 }
 
@@ -22,10 +27,31 @@ function dirPathspec(dirRel: string): string[] {
   return [`:(top,glob)${prefix}*`, ':(top,exclude,glob)**/*.xlcode.xlsx', ':(top,exclude,glob)**/~$*'];
 }
 
-/** 対象ディレクトリの未コミット変更（git status --porcelain の行） */
+/** git status --porcelain=v1 -z の出力からパスを取り出す（名前変更は新しい方のパス） */
+export function parseStatusZ(out: string): string[] {
+  const parts = out.split('\0');
+  const paths: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p.length < 4) continue;
+    paths.push(p.slice(3));
+    // R / C は次の要素が元のパス
+    if (p[0] === 'R' || p[0] === 'C') i++;
+  }
+  return paths;
+}
+
+/** 対象ディレクトリの未コミット変更（パスの一覧） */
 export async function uncommittedChanges(root: string, dirRel: string): Promise<string[]> {
-  const out = await git(root, ['status', '--porcelain=v1', '--untracked-files=all', '--', ...dirPathspec(dirRel)]);
-  return out.split('\n').filter((l) => l.trim() !== '');
+  const out = await git(root, [
+    'status',
+    '--porcelain=v1',
+    '-z',
+    '--untracked-files=all',
+    '--',
+    ...dirPathspec(dirRel),
+  ]);
+  return parseStatusZ(out);
 }
 
 /**
@@ -52,6 +78,6 @@ export interface GitSummary {
 export async function gitSummary(root: string): Promise<GitSummary> {
   if (!(await isGitRepo(root))) return { repo: false, changes: [] };
   const branch = (await git(root, ['branch', '--show-current'])).trim() || '(detached)';
-  const out = await git(root, ['status', '--porcelain=v1', '--untracked-files=all']);
-  return { repo: true, branch, changes: out.split('\n').filter((l) => l.trim() !== '') };
+  const out = await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+  return { repo: true, branch, changes: parseStatusZ(out) };
 }

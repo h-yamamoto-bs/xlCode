@@ -20,6 +20,26 @@ export interface SheetData {
 
 const CODE_FONT = { name: 'Consolas', size: 10 };
 
+/**
+ * xlsx（XML）に保存できる形へ変換する。読み込み時は ExcelJS が元に戻す。
+ * - 文字列中の「_xHHHH_」は xlsx では文字コードとして解釈されるため、先頭の「_」を _x005F_ にする
+ * - XML に書けない制御文字は _xHHHH_ で表す（そのまま書くと読み込めないブックになる）
+ */
+export function escapeCell(text: string): string {
+  return text
+    .replace(/_(x[0-9A-Fa-f]{4}_)/g, '_x005F_$1')
+    .replace(XML_INVALID, (c) => `_x${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}_`);
+}
+
+/** XML 1.0 に書けない文字（タブ・改行・復帰以外の制御文字など） */
+// eslint-disable-next-line no-control-regex
+const XML_INVALID = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+
+/** 対になっていないサロゲート（壊れた UTF-16）を含むか。xlsx に保存できない */
+export function hasLoneSurrogate(text: string): boolean {
+  return /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
+}
+
 function cellText(value: ExcelJS.CellValue): { text: string; type?: string } {
   if (value === null || value === undefined) return { text: '' };
   if (typeof value === 'string') return { text: value };
@@ -54,7 +74,25 @@ export class Book {
   static async load(file: string): Promise<Book> {
     const wb = new ExcelJS.Workbook();
     // ExcelJS の readFile はパスの扱いが環境依存なので Buffer 経由で読む
-    await wb.xlsx.load((await readFile(file)) as unknown as ArrayBuffer);
+    let buf: Buffer;
+    try {
+      buf = await readFile(file);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') throw e;
+      // OneDrive の「オンラインのみ」のファイルは、読むときにダウンロードされる。オフライン等で失敗すると EIO などになる
+      throw new Error(
+        `ブックを読み込めません（${code ?? e}）: ${file}。OneDrive の「オンラインのみ」のファイルの場合は、エクスプローラーで「このデバイス上で常に保持する」を選んでください`,
+        { cause: e },
+      );
+    }
+    try {
+      await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    } catch (e) {
+      throw new Error(`ブックが壊れているか、xlsx ではありません: ${file}（${e instanceof Error ? e.message : e}）`, {
+        cause: e,
+      });
+    }
     return new Book(wb);
   }
 
@@ -106,9 +144,10 @@ export class Book {
    */
   writeLines(name: string, lines: readonly string[], columns: readonly (readonly string[])[] = []): void {
     for (const [i, l] of lines.entries()) {
-      if (l.length > MAX_CELL_CHARS) {
+      if (escapeCell(l).length > MAX_CELL_CHARS) {
         throw new Error(`「${name}」の ${i + 1} 行目が ${MAX_CELL_CHARS} 文字を超えています`);
       }
+      if (hasLoneSurrogate(l)) throw new Error(`「${name}」の ${i + 1} 行目に壊れた文字（孤立サロゲート）があります`);
     }
     let ws = this.wb.getWorksheet(name);
     if (!ws) {
@@ -127,7 +166,7 @@ export class Book {
       for (let c = 1; c <= cols.length; c++) {
         const cell = row.getCell(c);
         const v = cols[c - 1][r - 1];
-        cell.value = v === undefined || v === '' ? null : v;
+        cell.value = v === undefined || v === '' ? null : escapeCell(v);
         cell.numFmt = '@';
         cell.font = CODE_FONT;
       }
