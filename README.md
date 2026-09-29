@@ -17,7 +17,7 @@ Excel in Copilot（Web）を疑似的なコーディングエージェントと�
 
 | 配布物 | 中身 | 必要なもの |
 |---|---|---|
-| `xlCode 1.0.0.exe` | そのまま起動できる Windows 版（portable） | なし |
+| `xlCode-Setup-1.0.0.exe` | Windows 用インストーラー。スタートメニュー・「アプリと機能」に登録される | なし |
 | `xlCode-src-win.zip` | ソース一式 + **Windows x64 用**の `node_modules` | Node.js 22 以上 |
 
 `node_modules` は OS ごとに中身が違う（Electron 本体、esbuild・Rollup・Tailwind・lightningcss のネイティブ部品）。
@@ -34,7 +34,7 @@ npm_config_platform=win32 npm_config_arch=x64 node node_modules/electron/install
 npm run dev          :: 開発起動
 npm test             :: テスト
 npm run test:e2e     :: GUI の E2E テスト
-npm run package:win  :: exe を作る（electron-builder は NSIS などを初回にダウンロードする。オフラインでは不可）
+npm run package:win  :: インストーラーを作る（electron-builder は NSIS などを初回にダウンロードする。オフラインでは不可）
 ```
 
 ## 使い方（GUI）
@@ -42,7 +42,7 @@ npm run package:win  :: exe を作る（electron-builder は NSIS などを初�
 ```sh
 npm install
 npm run dev              # 開発起動
-npm run package:win      # Windows 用にパッケージ（dist/ に portable と installer）
+npm run package:win      # Windows 用インストーラー（dist/xlCode-Setup-*.exe）。Linux では wine（32/64 ビット）と xvfb-run が必要
 ```
 
 - **エクスプローラー**: ブック一覧と各ファイルの状態（E = Excel側で編集中、S = エディタ側で変更、C = 両側で変更）

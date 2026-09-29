@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="#1f1f1f"/>
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="none" stroke="#3fb56b" stroke-width="16"/>
+  <g fill="none" stroke="#3fb56b" stroke-width="10" opacity="0.35">
+    <path d="M96 176h320M96 256h320M96 336h320M208 120v272"/>
+  </g>
+  <text x="256" y="300" text-anchor="middle" font-family="Consolas, 'DejaVu Sans Mono', monospace" font-weight="700" font-size="150" fill="#ffffff">&lt;xl&gt;</text>
+</svg>
