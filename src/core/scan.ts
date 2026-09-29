@@ -6,7 +6,7 @@ import { readdir } from 'node:fs/promises';
 import { excelPathError, isBookCopy, isIgnored, listSourceFiles, readTextFile } from './fsutil';
 import { normalizeText } from './normalize';
 import { booksInDir, exists, type BookRef, type ProjectContext } from './project';
-import { classifySheet, sheetKey, validateFileName } from './sheetName';
+import { classifySheet, isCodeName, sheetKey, validateFileName } from './sheetName';
 import { bookState, type FileState } from './state';
 import { Book } from './workbook';
 import { readFile } from 'node:fs/promises';
@@ -103,7 +103,7 @@ export async function scanBook(ctx: ProjectContext, ref: BookRef): Promise<Scan>
   const seen = new Map<string, string>();
 
   for (const name of book.sheetNames()) {
-    const info = classifySheet(name);
+    const info = classifySheet(name, ctx.config.extraCodeNames);
     if (info.kind === 'conflict') conflictSheets.push(name);
     if (info.kind === 'unknown-reserved') warnings.push(`「${name}」は予約接頭辞「#」で始まるため無視します`);
     if (info.kind === 'agents') {
@@ -154,6 +154,12 @@ export async function scanBook(ctx: ProjectContext, ref: BookRef): Promise<Scan>
 
   const sources = new Map<string, { name: string; abs: string; canon: Canon; format: TextFormat }>();
   for (const f of await listSourceFiles(ctx.root, ref.dirAbs, ctx.ig)) {
+    if (!isCodeName(f.name, ctx.config.extraCodeNames)) {
+      warnings.push(
+        `拡張子のないファイル「${f.name}」は対象外です。コードとして扱うには設定（extraCodeNames）に追加してください`,
+      );
+      continue;
+    }
     const err = validateFileName(f.name);
     if (err) {
       errors.push(`ファイル名エラー: ${err}`);

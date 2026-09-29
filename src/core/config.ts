@@ -24,6 +24,8 @@ export interface XlcodeConfig {
    * 未設定ならソースの各フォルダの中に置く。
    */
   bookRoot?: string;
+  /** 拡張子のないファイル名のうち、追加でコードとして扱うもの（Makefile などは既定で扱う） */
+  extraCodeNames?: string[];
 }
 
 export const DEFAULT_CONFIG: XlcodeConfig = {

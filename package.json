@@ -46,6 +46,7 @@
     "exceljs": "^4.4.0",
     "iconv-lite": "^0.7.3",
     "ignore": "^7.0.10",
+    "jszip": "^3.10.2",
     "prettier": "^3.9.9"
   },
   "type": "module"

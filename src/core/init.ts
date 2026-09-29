@@ -6,7 +6,7 @@ import { textToLines } from './normalize';
 import { bookPathFor, bookRef, bookRootOf, booksInDir, openProject } from './project';
 import { bookState, saveState } from './state';
 import { applyTreeToBook, computeTree, readRootAgents } from './tree';
-import { validateFileName } from './sheetName';
+import { isCodeName, validateFileName } from './sheetName';
 import { Book } from './workbook';
 
 const GITIGNORE_ENTRIES = ['*.xlcode.xlsx', '~$*', `${XLCODE_DIR}/`];
@@ -89,6 +89,10 @@ export async function createBook(root: string, dirAbs: string): Promise<CreateBo
   // LocalAgents.md を先頭に
   files.sort((a, b) => Number(b.name === LOCAL_AGENTS_SHEET) - Number(a.name === LOCAL_AGENTS_SHEET));
   for (const f of files) {
+    if (!isCodeName(f.name, ctx.config.extraCodeNames)) {
+      skipped.push(`${f.name}（拡張子がないため対象外）`);
+      continue;
+    }
     const err = validateFileName(f.name);
     if (err) throw new Error(err);
     const read = await readTextFile(f.abs);

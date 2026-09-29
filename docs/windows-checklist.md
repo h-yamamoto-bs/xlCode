@@ -97,3 +97,16 @@ xlCode は Windows のシェルプロパティ `System.SyncTransferStatus` と�
 | 9-2 | Copilot に `.ps1` を作らせて Build → Windows PowerShell 5.1 で実行 | 日本語が化けない（UTF-8 BOM・CRLF） | |
 | 9-3 | 既存の Shift_JIS のファイルを Excel で編集して Build | Shift_JIS のまま。エディタで開いて化けていない | |
 | 9-4 | Git for Windows（core.autocrlf=true）で checkout した CRLF のファイルを Build | CRLF のまま。`git diff` に改行だけの差分が出ない | |
+
+## 10. UI 用シートとブックの保存
+
+xlCode はブックを部分的に書き換える（変更したコードのシートの XML だけを差し替える）。生成した XML を本物の Excel が問題なく開けるかを確認する。
+
+| # | 手順 | 期待する結果 | 結果 |
+|---|---|---|---|
+| 10-1 | xlCode で作ったブックをデスクトップ版 Excel で開く | 「修復しますか」などの警告が出ない | |
+| 10-2 | Build / Sync / Refresh Tree の後に開く | 同上。コードのシートが文字列書式・Consolas | |
+| 10-3 | UI 用シート（図形・ボタン・グラフ・条件付き書式・入力規則）を作ってから Build / Sync | UI 用シートがそのまま残る | |
+| 10-4 | 印刷範囲を設定した UI 用シートがある状態で、コードのシートを DEL_ で削除 | 印刷範囲が UI 用シートのまま | |
+| 10-5 | Web 版 Excel で開く | 同上 | |
+| 10-6 | 「UI」「データ」など拡張子のないシート | Build / Sync の対象にならず、ファイルも作られない | |

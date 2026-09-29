@@ -53,7 +53,10 @@ describe('state.json の破損', () => {
 
   it('形式が違っても止める', async () => {
     const f = await setup();
-    await writeFile(f.file('.xlcode/state.json'), JSON.stringify({ version: 1, books: { x: { files: { a: { hash: 1 } } } } }));
+    await writeFile(
+      f.file('.xlcode/state.json'),
+      JSON.stringify({ version: 1, books: { x: { files: { a: { hash: 1 } } } } }),
+    );
     await expect(build(f.root, f.file(BOOK), { confirmed: true })).rejects.toThrow(/x の a の形式が違います/);
   });
 

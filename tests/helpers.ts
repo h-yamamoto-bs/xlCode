@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,8 +11,10 @@ export interface Fixture {
   write: (rel: string, text: string) => Promise<void>;
   read: (rel: string) => Promise<string>;
   git: (...args: string[]) => string;
-  /** Copilot の編集を模してブックを書き換える */
+  /** Copilot の編集を模してブックを書き換える（xlCode の保存処理で、変更したシートだけ書き換える） */
   editBook: (rel: string, fn: (b: Book) => void) => Promise<void>;
+  /** Excel がブック全体を保存し直した状態を再現する（セルの型なども自由に変えられる） */
+  saveAsExcel: (rel: string, fn: (wb: ExcelJS.Workbook) => void) => Promise<void>;
   sheet: (rel: string, name: string) => Promise<string[]>;
 }
 
@@ -41,6 +44,12 @@ export async function fixture(files: Record<string, string> = {}, opts: { git?: 
       const b = await Book.load(file(rel));
       fn(b);
       await b.save(file(rel));
+    },
+    saveAsExcel: async (rel, fn) => {
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load((await readFile(file(rel))) as unknown as ArrayBuffer);
+      fn(wb);
+      await wb.xlsx.writeFile(file(rel));
     },
     sheet: async (rel, name) => {
       const b = await Book.load(file(rel));
