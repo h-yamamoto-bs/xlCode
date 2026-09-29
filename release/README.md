@@ -1,30 +1,32 @@
 # release
 
-| フォルダ | 中身 |
+| 場所 | 中身 |
 |---|---|
-| `installer/` | **Windows 用インストーラー（最新: 1.0.0 preview 1、コミット 1401ab0）** |
-| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（**古い版: コミット ff685d1**） |
+| `installer/` | Windows 用インストーラー（1.0.0 preview 1、コミット 1401ab0） |
+| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（コミット 54f3924） |
 
+どちらも GitHub の 1 ファイル 100MB 制限に収まるよう分割している。
 
-npm install できない環境向けの一式を、GitHub の 1 ファイル 100MB 制限に収まるよう分割した zip。
+## xlCode-src-win.zip
 
-## 中身（xlCode-src-win.zip）
+npm install できない環境向けの一式。
 
-- ソース一式と Git 履歴（コミット ff685d1 時点）
-- **Windows x64 用**の `node_modules`（Electron 本体、esbuild・Rollup・Tailwind・lightningcss の win32-x64 版を含む）
+- ソース一式（コミット 54f3924。`release/` は除く）
+- **Windows x64 用**の `node_modules`（Electron 本体、esbuild・Rollup・Tailwind・lightningcss の win32-x64 版、iconv-lite を含む）
 - `package.json` / `package-lock.json`
+- **Git の履歴（`.git`）は含まない。** 履歴はこのリポジトリから取得する
 
 Linux / macOS では `node_modules` の中身が合わないため、そのままでは動かない。
 
-## 取り出し方
+### 取り出し方
 
 1. このフォルダを取得する（`git clone` か、GitHub の「Code → Download ZIP」）
 2. `join.bat` をダブルクリック（Linux / macOS は `sh join.sh`）→ `xlCode-src-win.zip` ができる
 3. 展開して、`xlCode` フォルダで `npm run dev`（Node.js 22 以上が必要。npm install は不要）
 
-## 確認用
+### 確認用
 
 xlCode-src-win.zip の SHA-256:
-`904790f452f4f9b8bd14d158e91130bb174f0c651b353bbbdd4f406a0f1b2571`
+`ae3b507ebffef5dce465734ab6d3b39c2c30c2a7648d98b69c6aa90bdd9fe175`
 
 Windows では `certutil -hashfile xlCode-src-win.zip SHA256` で確認できる。
