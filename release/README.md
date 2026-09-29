@@ -1,5 +1,11 @@
 # release
 
+| フォルダ | 中身 |
+|---|---|
+| `installer/` | **Windows 用インストーラー（最新: 1.0.0 preview 1、コミット 1401ab0）** |
+| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（**古い版: コミット ff685d1**） |
+
+
 npm install できない環境向けの一式を、GitHub の 1 ファイル 100MB 制限に収まるよう分割した zip。
 
 ## 中身（xlCode-src-win.zip）
