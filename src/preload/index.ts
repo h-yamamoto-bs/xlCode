@@ -19,6 +19,8 @@ const api: XlcodeApi = {
   openTerminal: call('openTerminal') as XlcodeApi['openTerminal'],
   bookLocks: call('bookLocks') as XlcodeApi['bookLocks'],
   readConfig: call('readConfig') as XlcodeApi['readConfig'],
+  syncStatus: call('syncStatus') as XlcodeApi['syncStatus'],
+  bookStamp: call('bookStamp') as XlcodeApi['bookStamp'],
   writeConfig: call('writeConfig') as XlcodeApi['writeConfig'],
   revealInFolder: call('revealInFolder') as XlcodeApi['revealInFolder'],
   readRuleFile: call('readRuleFile') as XlcodeApi['readRuleFile'],

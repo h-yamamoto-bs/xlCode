@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Confirmation, OpResult } from '../../core';
-import type { ExcelMode, OpenVia, ProjectInfo } from '../../shared/api';
+import type { ExcelMode, OpenVia, ProjectInfo, SyncReport } from '../../shared/api';
 import { api, storageGet, storageSet, unwrap } from './api';
 import { BookView } from './components/BookView';
 import { useDialog } from './components/Dialogs';
@@ -12,8 +12,15 @@ import { EXCEL_MODES, SettingsView } from './components/SettingsView';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
 import { Welcome } from './components/Welcome';
+import { SYNC_META } from './status';
 
 type View = 'books' | 'rules' | 'settings';
+
+/** xlCode からブックを開いた方法と、Web 版で開いた時点のブックの状態 */
+interface Opened {
+  via: OpenVia;
+  stamp?: string;
+}
 
 const ACTION_LABEL: Record<string, string> = {
   'write-file': 'ファイル出力',
@@ -60,8 +67,25 @@ export function App() {
     setExcelModeState(m);
     storageSet('excelMode', m);
   }, []);
-  // ブックを最後に xlCode からどちらで開いたか（キー: ルート|ブック）
-  const lastOpened = useRef<Record<string, OpenVia>>(storageGet('lastOpened', {}));
+  // ブックを最後に xlCode からどちらで開いたか（キー: ルート|ブック）。
+  // Web 版で開いたときは、その時点のブックの更新日時・サイズ（stamp）も覚えておく
+  const lastOpened = useRef<Record<string, Opened>>(
+    Object.fromEntries(
+      Object.entries(storageGet<Record<string, Opened | OpenVia>>('lastOpened', {})).map(([k, v]) => [
+        k,
+        typeof v === 'string' ? { via: v } : v,
+      ]),
+    ),
+  );
+  const setOpened = (key: string, o: Opened) => {
+    lastOpened.current = { ...lastOpened.current, [key]: o };
+    storageSet('lastOpened', lastOpened.current);
+  };
+  // OneDrive の同期状態（Windows のみ）
+  const [syncReport, setSyncReport] = useState<SyncReport | null>(null);
+  const mergeSync = useCallback((r: SyncReport) => {
+    setSyncReport((prev) => ({ oneDriveRunning: r.oneDriveRunning, books: { ...(prev?.books ?? {}), ...r.books } }));
+  }, []);
   const webSkip = useRef(new Set<string>());
   const busyRef = useRef(false);
   const { ask, node: dialog } = useDialog();
@@ -130,7 +154,7 @@ export function App() {
     async (book: string): Promise<boolean> => {
       if (mode === 'desktop' || webSkip.current.has(book)) return true;
       // 両方モード: xlCode からデスクトップ版で開いたブックは、ロックファイルで閉じたことを検知できる
-      if (mode === 'both' && lastOpened.current[`${root}|${book}`] === 'desktop') return true;
+      if (mode === 'both' && lastOpened.current[`${root}|${book}`]?.via === 'desktop') return true;
       const { value, checked } = await ask({
         title: 'Web 版 Excel でこのブックを閉じましたか？',
         icon: 'warning',
@@ -299,28 +323,170 @@ export function App() {
     [root, runConfirmed, logResult, showConflicts, ask, buildFlow, log],
   );
 
+  /**
+   * OneDrive の同期が終わるまで待つ（Windows のみ）。転送中なら最大2分待ち、
+   * 一時停止・エラー・OneDrive 未起動なら続けるかを聞く。false なら中止
+   */
+  const waitForOneDrive = useCallback(
+    async (book: string, label: string): Promise<boolean> => {
+      if (api.platform !== 'win32' || !root) return true;
+      const deadline = Date.now() + 120_000;
+      for (;;) {
+        const r = await api.syncStatus(root, [book]);
+        if (!r.ok) return true;
+        mergeSync(r.value);
+        const state = r.value.books[book]?.state ?? 'unknown';
+        if (state === 'unsupported' || state === 'outside') return true;
+        if (r.value.oneDriveRunning === false) {
+          return await askContinue(
+            'OneDrive が起動していません',
+            'このままではブックの変更がクラウドと同期されません。OneDrive を起動してから実行することをおすすめします。',
+            label,
+          );
+        }
+        const meta = SYNC_META[state];
+        if (meta.busy) {
+          if (Date.now() > deadline) {
+            return askContinue(
+              'OneDrive の同期が終わりません',
+              `2分待ちましたが「${meta.label}」のままです。エクスプローラーや OneDrive の画面で状態を確認してください。`,
+              label,
+            );
+          }
+          setBusy(`OneDrive の同期を待っています（${meta.label}）`);
+          await new Promise((res) => setTimeout(res, 2000));
+          continue;
+        }
+        if (meta.problem) {
+          return askContinue(
+            `OneDrive: ${meta.label}`,
+            '同期されていない変更が失われたり、OneDrive が複製（ブック名-PC名.xlsx）を作ったりする可能性があります。OneDrive の状態を確認してください。',
+            label,
+          );
+        }
+        return true;
+      }
+    },
+    // askContinue は下で定義（ask のみに依存）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [root, mergeSync, ask],
+  );
+
+  const askContinue = async (title: string, body: string, label: string): Promise<boolean> => {
+    const { value } = await ask({
+      title,
+      icon: 'warning',
+      body: <p>{body}</p>,
+      buttons: [
+        { label: 'キャンセル', value: false, variant: 'primary' },
+        { label: `このまま${label}`, value: true },
+      ],
+      cancelValue: false,
+    });
+    if (value) log('warning', `${title}（このまま${label}しました）`);
+    return value;
+  };
+
+  /**
+   * Web 版で開いたブックに、Web 版での編集が届いているか確認する。
+   * 開いた時点からブックが変わっていなければ、まだ OneDrive から届いていない可能性がある
+   */
+  const checkWebEdits = useCallback(
+    async (book: string, label: string): Promise<boolean> => {
+      const key = `${root}|${book}`;
+      const opened = lastOpened.current[key];
+      if (opened?.via !== 'web' || !opened.stamp) return true;
+      const now = await api.bookStamp(root!, book);
+      if (!now.ok || now.value !== opened.stamp) return true;
+      const { value } = await ask<'wait' | 'go' | 'cancel'>({
+        title: 'Web 版での編集が、まだこの PC に届いていない可能性があります',
+        icon: 'warning',
+        body: (
+          <>
+            <p>Web 版で開いてから、このブックはこの PC 上で一度も更新されていません。</p>
+            <p className="mt-2">
+              Web 版で編集した場合は、OneDrive
+              がダウンロードするまで待ってください。何も編集していなければ、このまま続けてかまいません。
+            </p>
+          </>
+        ),
+        buttons: [
+          { label: '届くまで待つ（最大2分）', value: 'wait', variant: 'primary' },
+          { label: `編集していないので${label}`, value: 'go' },
+          { label: 'キャンセル', value: 'cancel' },
+        ],
+        cancelValue: 'cancel',
+      });
+      if (value === 'cancel') return false;
+      if (value === 'go') return true;
+      const deadline = Date.now() + 120_000;
+      setBusy('Web 版での編集が届くのを待っています');
+      while (Date.now() < deadline) {
+        await new Promise((res) => setTimeout(res, 2000));
+        const s = await api.bookStamp(root!, book);
+        if (s.ok && s.value !== opened.stamp) {
+          log('info', `Web 版での編集が届きました: ${book}`);
+          // ダウンロードの途中かもしれないので、同期の完了も待つ
+          return waitForOneDrive(book, label);
+        }
+      }
+      return askContinue('Web 版での編集が届きませんでした', '2分待ちましたが、ブックは更新されていません。', label);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [root, ask, log, waitForOneDrive],
+  );
+
+  /** Build / Sync の後、Web 版で開いていたブックは、比較の基準を今の状態に更新する */
+  const refreshStamp = useCallback(
+    async (book: string) => {
+      const key = `${root}|${book}`;
+      const opened = lastOpened.current[key];
+      if (opened?.via !== 'web') return;
+      const s = await api.bookStamp(root!, book);
+      if (s.ok) setOpened(key, { ...opened, stamp: s.value });
+    },
+
+    [root],
+  );
+
+  /** Excel 側・OneDrive 側の準備ができているか（Build / Sync / 開く の前） */
+  const ready = useCallback(
+    async (book: string, label: string) =>
+      (await confirmWebClosed(book)) && (await waitForOneDrive(book, label)) && (await checkWebEdits(book, label)),
+    [confirmWebClosed, waitForOneDrive, checkWebEdits],
+  );
+
   const onBuild = useCallback(
     (book: string) =>
       withBusy('Build 中', async () => {
-        if (await confirmWebClosed(book)) await buildFlow(book);
+        if (!(await ready(book, 'Build'))) return;
+        setBusy('Build 中');
+        await buildFlow(book);
+        await refreshStamp(book);
       }),
-    [withBusy, confirmWebClosed, buildFlow],
+    [withBusy, ready, buildFlow, refreshStamp],
   );
 
   const onSync = useCallback(
     (book: string) =>
       withBusy('Sync 中', async () => {
-        if (await confirmWebClosed(book)) await syncFlow(book);
+        if (!(await ready(book, 'Sync'))) return;
+        setBusy('Sync 中');
+        await syncFlow(book);
+        await refreshStamp(book);
       }),
-    [withBusy, confirmWebClosed, syncFlow],
+    [withBusy, ready, syncFlow, refreshStamp],
   );
 
   /** 5.5-2: Sync → 起動を1操作にまとめる */
   const onOpenExcel = useCallback(
     (book: string, via: OpenVia) =>
       withBusy('Sync して Excel を起動中', async () => {
-        if (!(await confirmWebClosed(book))) return;
+        if (!(await ready(book, 'Sync'))) return;
+        setBusy('Sync して Excel を起動中');
         if (!(await syncFlow(book))) return;
+        // Web 版は、Sync で書き換えたブックが OneDrive にアップロードされてから開く（古い内容が表示されないように）
+        if (via === 'web' && !(await waitForOneDrive(book, '開く'))) return;
         const opened = await api.openInExcel(root!, book, via);
         if (!opened.ok) {
           if (via !== 'web') throw new Error(opened.error);
@@ -339,14 +505,14 @@ export function App() {
           return;
         }
         const url = opened.value;
-        lastOpened.current = { ...lastOpened.current, [`${root}|${book}`]: via };
-        storageSet('lastOpened', lastOpened.current);
+        const stamp = via === 'web' ? await api.bookStamp(root!, book) : null;
+        setOpened(`${root}|${book}`, { via, stamp: stamp?.ok ? stamp.value : undefined });
         // Web 版で開いたら、閉じたかの確認を再び出す
         if (via === 'web') webSkip.current.delete(book);
         log('info', via === 'web' ? `Web 版 Excel で開きました: ${url}` : `デスクトップ版 Excel で開きました: ${book}`);
-        if (via === 'web') log('info', '  OneDrive への同期が終わる前に開くと、古い内容が表示されることがあります');
       }),
-    [withBusy, confirmWebClosed, syncFlow, root, log, ask],
+
+    [withBusy, ready, syncFlow, root, log, ask, waitForOneDrive],
   );
 
   const onRefreshTree = useCallback(
@@ -356,7 +522,10 @@ export function App() {
         async () => {
           const res = await unwrap(api.refreshTree(r!));
           for (const b of res.books)
-            log(b.ok ? 'info' : 'error', `  ${b.ok ? '更新' : '失敗'}: ${b.book}${b.error ? `（${b.error}）` : ''}`);
+            log(
+              b.ok ? 'info' : 'error',
+              `  ${b.ok ? (b.unchanged ? '最新' : '更新') : '失敗'}: ${b.book}${b.error ? `（${b.error}）` : ''}`,
+            );
           const failed = res.books.filter((b) => !b.ok).length;
           if (res.partial)
             log(
@@ -364,7 +533,15 @@ export function App() {
               'Refresh Tree: 一部のブックだけ更新されました。#tree が不整合です。Excel を閉じて再実行してください',
             );
           else if (failed > 0) log('error', 'Refresh Tree: 更新できませんでした');
-          else log('success', `Refresh Tree: ${res.books.length} ブックを更新しました（${res.version}）`);
+          else {
+            const updated = res.books.filter((b) => !b.unchanged).length;
+            log(
+              'success',
+              updated === 0
+                ? `Refresh Tree: すべてのブックが最新です（${res.version}）`
+                : `Refresh Tree: ${updated} ブックを更新しました（${res.version}）`,
+            );
+          }
           if (failed > 0) setPanelOpen(true);
         },
         r,
@@ -503,6 +680,41 @@ export function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [hasDrafts]);
 
+  // OneDrive の同期状態を定期的に取得する（Windows のみ。ウィンドウが前面のときだけ）
+  useEffect(() => {
+    if (!project || api.platform !== 'win32') return;
+    const rels = project.books.map((b) => b.rel);
+    if (rels.length === 0) return;
+    let stopped = false;
+    const tick = async () => {
+      if (stopped || busyRef.current || !document.hasFocus()) return;
+      const r = await api.syncStatus(project.root, rels);
+      if (!stopped && r.ok) setSyncReport(r.value);
+    };
+    void tick();
+    const timer = setInterval(tick, 10_000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [project]);
+
+  const logSyncDiagnostics = useCallback(() => {
+    if (!syncReport) {
+      log('info', 'OneDrive の同期状態はまだ取得していません（Windows のみ）');
+      return;
+    }
+    log(
+      'info',
+      `OneDrive: ${syncReport.oneDriveRunning === null ? '確認していません' : syncReport.oneDriveRunning ? '起動中' : '起動していません'}`,
+    );
+    for (const [rel, s] of Object.entries(syncReport.books)) {
+      log('info', `  ${rel}: ${SYNC_META[s.state].label || s.state}${s.detail ? ` ${s.detail}` : ''}`);
+    }
+    setPanelOpen(true);
+    setPanelTab('output');
+  }, [syncReport, log]);
+
   // デスクトップ版 Excel の開閉を監視し、変わったら状態を更新する
   useEffect(() => {
     if (!project || mode === 'web') return;
@@ -632,6 +844,7 @@ export function App() {
                 selected={selected}
                 busy={busy !== null}
                 onSelect={setSelected}
+                sync={syncReport?.books ?? {}}
                 onRefreshTree={() => onRefreshTree()}
                 onReload={() => withBusy('再読み込み中', async () => {})}
                 onCreateBook={onCreateBook}
@@ -701,6 +914,8 @@ export function App() {
                 treeVersion={project.treeVersion}
                 busy={busy !== null}
                 mode={mode}
+                sync={syncReport?.books[book.rel]}
+                oneDriveRunning={syncReport?.oneDriveRunning ?? null}
                 onOpenExcel={(via) => void onOpenExcel(book.rel, via)}
                 onSync={() => void onSync(book.rel)}
                 onBuild={() => void onBuild(book.rel)}
@@ -742,6 +957,8 @@ export function App() {
         warnings={problems.filter((p) => p.level === 'warning').length}
         mode={mode}
         onMode={() => setView('settings')}
+        sync={syncReport}
+        onSync={logSyncDiagnostics}
         onProblems={() => {
           setPanelOpen(true);
           setPanelTab('problems');

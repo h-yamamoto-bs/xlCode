@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useState } from 'react';
-import type { BookSummary, ProjectInfo } from '../../../shared/api';
-import { EXCEL_SIDE, SOURCE_SIDE, STATUS } from '../status';
+import type { BookSummary, BookSync, ProjectInfo } from '../../../shared/api';
+import { EXCEL_SIDE, SOURCE_SIDE, STATUS, SYNC_META } from '../status';
 import { Icon } from './Icons';
 import { IconButton, Section } from './ui';
 
@@ -21,6 +21,7 @@ export function Sidebar({
   selected,
   busy,
   onSelect,
+  sync,
   onRefreshTree,
   onReload,
   onCreateBook,
@@ -29,6 +30,7 @@ export function Sidebar({
   selected: string | null;
   busy: boolean;
   onSelect: (rel: string) => void;
+  sync: Record<string, BookSync>;
   onRefreshTree: () => void;
   onReload: () => void;
   onCreateBook: (dirRel: string) => void;
@@ -94,6 +96,15 @@ export function Sidebar({
                   <span className="truncate text-[11px] text-faint">{b.dirRel || '.'}</span>
                   <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[11px]">
                     {b.open && <Icon.Lock size={12} className="text-warn" aria-label="開かれています" />}
+                    {sync[b.rel] && SYNC_META[sync[b.rel].state].label && sync[b.rel].state !== 'outside' && (
+                      <span title={`OneDrive: ${SYNC_META[sync[b.rel].state].label}`} className="flex">
+                        <Icon.Cloud
+                          size={13}
+                          className={SYNC_META[sync[b.rel].state].color}
+                          aria-label={`OneDrive: ${SYNC_META[sync[b.rel].state].label}`}
+                        />
+                      </span>
+                    )}
                     {badge.problems > 0 && <Icon.Error size={12} className="text-deleted" aria-label="エラー" />}
                     {badge.conflict > 0 && <span className="text-conflict">C{badge.conflict}</span>}
                     {badge.excel > 0 && <span className="text-modified">E{badge.excel}</span>}

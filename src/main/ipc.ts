@@ -24,6 +24,7 @@ import { atomicWrite } from '../core/atomic';
 import { excelPathError, isBookFile, isIgnored, toPosixRel } from '../core/fsutil';
 import type { BookSummary, OpenVia, ProjectInfo, Result } from '../shared/api';
 import { joinUrl, readSyncRoots, toWebUrl } from './onedrive';
+import { bookStamp, querySyncStatus } from './syncStatus';
 
 async function wrap<T>(fn: () => Promise<T>): Promise<Result<T>> {
   try {
@@ -161,6 +162,10 @@ export function registerIpc(): void {
       return out;
     }),
   );
+  ipcMain.handle('syncStatus', (_e, root: string, books: string[]) =>
+    wrap(() => querySyncStatus(Object.fromEntries(books.map((b) => [b, inside(root, b)])))),
+  );
+  ipcMain.handle('bookStamp', (_e, root: string, book: string) => wrap(() => bookStamp(inside(root, book))));
   ipcMain.handle('readConfig', (_e, root: string) => wrap(() => loadConfig(root)));
   ipcMain.handle('writeConfig', (_e, root: string, config: XlcodeConfig) => wrap(() => saveConfig(root, config)));
   ipcMain.handle('openTerminal', (_e, root: string, dirRel: string) =>

@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
-import type { BookSummary, ExcelMode, OpenVia } from '../../../shared/api';
-import { EXCEL_SIDE, SOURCE_SIDE, STATUS } from '../status';
+import type { BookSummary, BookSync, ExcelMode, OpenVia } from '../../../shared/api';
+import { EXCEL_SIDE, SOURCE_SIDE, STATUS, SYNC_META } from '../status';
 import { Icon } from './Icons';
 import { Button } from './ui';
 
@@ -48,6 +48,8 @@ export function BookView({
   treeVersion,
   busy,
   mode,
+  sync,
+  oneDriveRunning,
   onOpenExcel,
   onSync,
   onBuild,
@@ -59,6 +61,8 @@ export function BookView({
   treeVersion: string;
   busy: boolean;
   mode: ExcelMode;
+  sync: BookSync | undefined;
+  oneDriveRunning: boolean | null;
   onOpenExcel: (via: OpenVia) => void;
   onSync: () => void;
   onBuild: () => void;
@@ -134,6 +138,19 @@ export function BookView({
       <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
         <div className="mx-auto flex max-w-[980px] flex-col gap-3">
           {book.loadError && <Banner kind="error">ブックを読み込めません: {book.loadError}</Banner>}
+          {sync && oneDriveRunning === false && sync.state !== 'outside' && (
+            <Banner kind="warning">OneDrive が起動していません。ブックの変更がクラウドと同期されません。</Banner>
+          )}
+          {sync && (SYNC_META[sync.state].busy || SYNC_META[sync.state].problem) && (
+            <Banner kind={SYNC_META[sync.state].problem ? 'warning' : 'info'}>
+              OneDrive: {SYNC_META[sync.state].label}
+              <div className="text-[12px] text-muted">
+                {SYNC_META[sync.state].busy
+                  ? 'Build / Sync / 開く は、同期が終わるまで自動で待ちます。'
+                  : 'OneDrive の画面で状態を確認してください。このまま Build / Sync すると、変更が失われたり複製ができたりする可能性があります。'}
+              </div>
+            </Banner>
+          )}
           {book.open && (
             <Banner kind="warning">
               このブックはデスクトップ版 Excel で開かれています。Build / Sync は Excel

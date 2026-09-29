@@ -36,7 +36,21 @@ export function parseTreeVersion(firstLine: string | undefined): string | null {
 export interface BookTreeResult {
   book: string;
   ok: boolean;
+  /** 既に最新だったので保存しなかった */
+  unchanged?: boolean;
   error?: string;
+}
+
+/** #tree と Agents.md シートが既に最新か。最新なら保存しない（Web 版で編集中のブックとの同期の衝突を避ける） */
+export function treeUpToDate(book: Book, tree: TreeSnapshot, agentsLines: string[] | null): boolean {
+  if (!book.hasSheet(TREE_SHEET)) return false;
+  const lines = book.readSheet(TREE_SHEET).lines;
+  if (parseTreeVersion(lines[0]) !== tree.version) return false;
+  if (!agentsLines) return true;
+  if (!book.hasSheet(AGENTS_SHEET)) return false;
+  const current = book.readSheet(AGENTS_SHEET).lines;
+  while (current.length > 0 && current[current.length - 1] === '') current.pop();
+  return current.length === agentsLines.length && current.every((l, i) => l === agentsLines[i]);
 }
 
 export interface RefreshResult {
@@ -91,6 +105,10 @@ export async function refreshTree(root: string): Promise<RefreshResult> {
         continue;
       }
       const book = await Book.load(abs);
+      if (treeUpToDate(book, tree, agents)) {
+        books.push({ book: rel, ok: true, unchanged: true });
+        continue;
+      }
       applyTreeToBook(book, tree, agents);
       const again = await checkBookOpen(abs);
       if (again.open) {

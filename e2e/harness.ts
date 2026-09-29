@@ -42,7 +42,11 @@ export interface Running {
  * アプリを起動してプロジェクトを開く。
  * excelMode を渡すと初回の確認を省く（null なら確認が出る）。
  */
-export async function launch(root: string, excelMode: string | null = 'both'): Promise<Running> {
+export async function launch(
+  root: string,
+  excelMode: string | null = 'both',
+  storage: Record<string, unknown> = {},
+): Promise<Running> {
   const userData = await mkdtemp(path.join(tmpdir(), 'xlcode-e2e-'));
   // XLCODE_E2E_EXE にパッケージ済みの実行ファイルを指定すると、それを対象にテストする
   const exe = process.env.XLCODE_E2E_EXE;
@@ -59,11 +63,12 @@ export async function launch(root: string, excelMode: string | null = 'both'): P
   });
   await win.waitForLoadState('domcontentloaded');
   await win.evaluate(
-    ([p, m]) => {
+    ([p, m, extra]) => {
       localStorage.setItem('recent', JSON.stringify([p]));
       if (m) localStorage.setItem('excelMode', JSON.stringify(m));
+      for (const [k, v] of Object.entries(extra)) localStorage.setItem(k, JSON.stringify(v));
     },
-    [root, excelMode] as const,
+    [root, excelMode, storage] as const,
   );
   await win.reload();
   await win

@@ -1,6 +1,6 @@
 import { rm, writeFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bookStatus } from '../src/core';
+import { bookStatus, refreshTree } from '../src/core';
 import { API_BOOK, APP_BOOK, launch, project, selectBook, waitLog, type Running } from './harness';
 
 let running: Running | null = null;
@@ -133,5 +133,38 @@ describe('xlCode GUI', () => {
     await win.getByRole('button', { name: '閉じたので続行' }).click();
     await waitLog(win, /state\.json が壊れています/);
     expect(await f.read('app/util.ts')).toBe('export const one = 1;\n');
+  });
+});
+
+describe('Web 版での編集', () => {
+  it('Web 版で開いてからブックが変わっていなければ、Build 前に知らせる', async () => {
+    const f = await project();
+    // 開いたときの Refresh Tree でブックが書き換わらないよう、先に最新にしておく
+    await refreshTree(f.root);
+    const { stat } = await import('node:fs/promises');
+    const s = await stat(f.file(APP_BOOK));
+    running = await launch(f.root, 'both', {
+      lastOpened: { [`${f.root}|${APP_BOOK}`]: { via: 'web', stamp: `${s.mtimeMs}:${s.size}` } },
+    });
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    await win.getByRole('button', { name: 'Build', exact: true }).click();
+    await win.getByRole('button', { name: '閉じたので続行' }).click();
+    await win.getByText('Web 版での編集が、まだこの PC に届いていない可能性があります').waitFor();
+    await win.getByRole('button', { name: '編集していないのでBuild' }).click();
+    await waitLog(win, /Build: (完了|変更なし)/);
+  });
+
+  it('ブックが更新されていれば知らせない', async () => {
+    const f = await project();
+    running = await launch(f.root, 'both', {
+      lastOpened: { [`${f.root}|${APP_BOOK}`]: { via: 'web', stamp: '0:0' } },
+    });
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    await win.getByRole('button', { name: 'Build', exact: true }).click();
+    await win.getByRole('button', { name: '閉じたので続行' }).click();
+    await waitLog(win, /Build: (完了|変更なし)/);
+    await expect(win.getByText('まだこの PC に届いていない').count()).resolves.toBe(0);
   });
 });

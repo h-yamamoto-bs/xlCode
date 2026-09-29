@@ -13,6 +13,35 @@ import type {
 export type ExcelMode = 'desktop' | 'web' | 'both';
 export type OpenVia = 'desktop' | 'web';
 
+/**
+ * OneDrive の同期状態
+ * - unsupported: Windows 以外 / outside: OneDrive の外 / online-only: このPCにダウンロードされていない
+ * - uploading / downloading / syncing: 転送待ち・転送中 / paused: 一時停止 / error: エラー / unknown: 読み取れない
+ */
+export type SyncState =
+  | 'unsupported'
+  | 'outside'
+  | 'synced'
+  | 'online-only'
+  | 'uploading'
+  | 'downloading'
+  | 'syncing'
+  | 'paused'
+  | 'error'
+  | 'unknown';
+
+export interface BookSync {
+  state: SyncState;
+  /** 診断用の生の値 */
+  detail?: string;
+}
+
+export interface SyncReport {
+  /** OneDrive が起動しているか（調べていない・分からない場合は null） */
+  oneDriveRunning: boolean | null;
+  books: Record<string, BookSync>;
+}
+
 export interface BookSummary extends Partial<BookStatus> {
   /** ルートからの相対パス */
   rel: string;
@@ -51,6 +80,9 @@ export interface XlcodeApi {
   openInExcel(root: string, bookRel: string, via: OpenVia): Promise<Result<string | null>>;
   /** 各ブックがデスクトップ版 Excel で開かれているか（ポーリング用） */
   bookLocks(root: string, bookRels: string[]): Promise<Result<Record<string, boolean>>>;
+  syncStatus(root: string, bookRels: string[]): Promise<Result<SyncReport>>;
+  /** ブックの更新日時とサイズ */
+  bookStamp(root: string, bookRel: string): Promise<Result<string>>;
   readConfig(root: string): Promise<Result<XlcodeConfig>>;
   writeConfig(root: string, config: XlcodeConfig): Promise<Result<void>>;
   openTerminal(root: string, dirRel: string): Promise<Result<void>>;

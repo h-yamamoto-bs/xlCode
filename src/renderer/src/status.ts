@@ -1,4 +1,5 @@
 import type { FileStatus } from '../../core';
+import type { SyncState } from '../../shared/api';
 
 export interface StatusMeta {
   /** ソース管理ビュー風の1文字表示 */
@@ -23,3 +24,25 @@ export const STATUS: Record<FileStatus, StatusMeta> = {
 
 export const EXCEL_SIDE: FileStatus[] = ['excel-changed', 'excel-new'];
 export const SOURCE_SIDE: FileStatus[] = ['source-changed', 'source-new', 'source-deleted', 'sheet-missing'];
+
+export interface SyncMeta {
+  label: string;
+  color: string;
+  /** 転送中（終わるまで待つべき） */
+  busy?: boolean;
+  /** 利用者の対応が必要 */
+  problem?: boolean;
+}
+
+export const SYNC_META: Record<SyncState, SyncMeta> = {
+  unsupported: { label: '', color: 'text-faint' },
+  outside: { label: 'OneDrive 外', color: 'text-faint' },
+  synced: { label: '同期済み', color: 'text-added' },
+  'online-only': { label: 'オンラインのみ', color: 'text-muted' },
+  uploading: { label: 'アップロード待ち', color: 'text-info', busy: true },
+  downloading: { label: 'ダウンロード待ち', color: 'text-info', busy: true },
+  syncing: { label: '同期中', color: 'text-info', busy: true },
+  paused: { label: '同期が一時停止中', color: 'text-warn', problem: true },
+  error: { label: '同期エラー', color: 'text-deleted', problem: true },
+  unknown: { label: '同期状態不明', color: 'text-faint' },
+};

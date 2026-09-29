@@ -1,8 +1,8 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
-import type { ExcelMode, ProjectInfo } from '../../../shared/api';
+import type { ExcelMode, ProjectInfo, SyncReport, SyncState } from '../../../shared/api';
 import { ModeLabel } from './SettingsView';
-import { EXCEL_SIDE } from '../status';
+import { EXCEL_SIDE, SYNC_META } from '../status';
 import { Icon } from './Icons';
 
 function Item({
@@ -35,6 +35,8 @@ export function StatusBar({
   warnings,
   mode,
   onMode,
+  sync,
+  onSync,
   onProblems,
 }: {
   project: ProjectInfo | null;
@@ -43,6 +45,8 @@ export function StatusBar({
   warnings: number;
   mode: ExcelMode;
   onMode: () => void;
+  sync: SyncReport | null;
+  onSync: () => void;
   onProblems: () => void;
 }) {
   const editing =
@@ -90,10 +94,41 @@ export function StatusBar({
           {stale > 0 ? `#tree 古い (${stale})` : '#tree 最新'}
         </Item>
       )}
+      {oneDrive(sync) && (
+        <Item
+          onClick={onSync}
+          title="OneDrive の同期状態（クリックで詳細を出力に表示）"
+          className={oneDrive(sync)!.color}
+        >
+          <Icon.Cloud size={14} />
+          OneDrive: {oneDrive(sync)!.label}
+        </Item>
+      )}
       <Item onClick={onMode} title="使う Excel（クリックで設定を開く）">
         {mode === 'web' ? <Icon.Cloud size={14} /> : <Icon.Desktop size={14} />}
         Excel: {ModeLabel(mode)}
       </Item>
     </div>
   );
+}
+
+/** ステータスバーに出す OneDrive の状態（全ブックのうち最も注意が必要なもの） */
+const PRIORITY: SyncState[] = [
+  'error',
+  'paused',
+  'uploading',
+  'downloading',
+  'syncing',
+  'unknown',
+  'online-only',
+  'synced',
+];
+
+function oneDrive(sync: SyncReport | null): { label: string; color: string } | null {
+  if (!sync) return null;
+  const states = Object.values(sync.books).map((b) => b.state);
+  if (!states.some((s) => s !== 'unsupported' && s !== 'outside')) return null;
+  if (sync.oneDriveRunning === false) return { label: '起動していません', color: 'text-warn' };
+  const worst = PRIORITY.find((p) => states.includes(p)) ?? 'unknown';
+  return SYNC_META[worst];
 }

@@ -298,3 +298,21 @@ describe('Refresh Tree', () => {
     expect(r.books.find((b) => b.book === 'api/api.xlcode.xlsx')?.ok).toBe(false);
   });
 });
+
+describe('Refresh Tree（保存の抑制）', () => {
+  it('#tree と Agents.md が最新のブックは保存しない', async () => {
+    const f = await setup();
+    const { stat } = await import('node:fs/promises');
+    await refreshTree(f.root);
+    const before = (await stat(f.file(BOOK))).mtimeMs;
+    await new Promise((r) => setTimeout(r, 20));
+    const r = await refreshTree(f.root);
+    expect(r.books).toEqual([{ book: BOOK, ok: true, unchanged: true }]);
+    expect((await stat(f.file(BOOK))).mtimeMs).toBe(before);
+    // Agents.md を変えれば保存する
+    await f.write('Agents.md', '# Agents.md\n\n- 変更\n');
+    const r2 = await refreshTree(f.root);
+    expect(r2.books[0].unchanged).toBeUndefined();
+    expect(await f.sheet(BOOK, 'Agents.md')).toContain('- 変更');
+  });
+});
