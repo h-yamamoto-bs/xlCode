@@ -91,7 +91,7 @@ export async function createBook(root: string, dirAbs: string): Promise<CreateBo
     if (err) throw new Error(err);
     const read = await readTextFile(f.abs);
     if (read.kind === 'binary') {
-      skipped.push(`${f.name}（UTF-8 テキストではない）`);
+      skipped.push(`${f.name}（${read.reason}）`);
       continue;
     }
     const c = await ctx.canon.canonical(f.name, f.abs, read.text);

@@ -1,5 +1,6 @@
 import { rm } from 'node:fs/promises';
 import { atomicWrite } from './atomic';
+import { defaultFormat, EncodeError, encodeFile } from './encoding';
 import type { Canon } from './canonical';
 import { CONFLICT_PREFIX } from './constants';
 import { autoCommit, isGitRepo, uncommittedChanges } from './git';
@@ -205,6 +206,17 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
   }
 
   const toBuild = scan.entries.filter((e) => e.status === 'excel-changed' || e.status === 'excel-new');
+  // 書き出す内容を先に作る（Shift_JIS で表せない文字などは、何も書かずに中断する）
+  const encoded = new Map<string, Buffer>();
+  for (const e of toBuild) {
+    try {
+      encoded.set(e.name, encodeFile(e.xl!.text, e.format ?? defaultFormat(e.name), e.name));
+    } catch (err) {
+      if (!(err instanceof EncodeError)) throw err;
+      r.errors.push(err.message);
+    }
+  }
+  if (r.errors.length > 0) return { ...r, status: 'error' };
   const shrinks = toBuild.map((e) => shrinkMessage(ctx, e, e.xl!)).filter((m): m is string => m !== null);
   if (shrinks.length > 0) {
     r.confirmations.push({
@@ -230,7 +242,7 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
     switch (e.status) {
       case 'excel-changed':
       case 'excel-new': {
-        await atomicWrite(e.srcAbs, e.xl!.text);
+        await atomicWrite(e.srcAbs, encoded.get(e.name)!);
         bs.files[e.name] = toState(e.xl!);
         r.changes.push({ action: 'write-file', target: e.name });
         const lines = textToLines(e.xl!.text);

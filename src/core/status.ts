@@ -1,4 +1,5 @@
 import { TREE_SHEET } from './constants';
+import { defaultFormat, formatLabel } from './encoding';
 import { bookRef, openProject } from './project';
 import { parseTreeVersion } from './tree';
 import { scanBook, type FileStatus } from './scan';
@@ -7,7 +8,7 @@ export interface BookStatus {
   book: string;
   errors: string[];
   warnings: string[];
-  files: { name: string; status: FileStatus }[];
+  files: { name: string; status: FileStatus; format?: string }[];
   conflictSheets: string[];
   deletes: string[];
   /** #tree 1行目に記録されたバージョン */
@@ -23,7 +24,9 @@ export async function bookStatus(root: string, bookAbs: string): Promise<BookSta
     book: ref.rel,
     errors: scan.errors,
     warnings: scan.warnings,
-    files: scan.entries.filter((e) => e.status !== 'gone').map((e) => ({ name: e.name, status: e.status })),
+    files: scan.entries
+      .filter((e) => e.status !== 'gone')
+      .map((e) => ({ name: e.name, status: e.status, format: formatLabel(e.format ?? defaultFormat(e.name)) })),
     conflictSheets: scan.conflictSheets,
     deletes: scan.deletes.map((d) => d.sheet),
     treeVersion: scan.book.hasSheet(TREE_SHEET) ? parseTreeVersion(scan.book.readSheet(TREE_SHEET).lines[0]) : null,

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { Canon } from './canonical';
+import type { TextFormat } from './encoding';
 import { AGENTS_SHEET } from './constants';
 import { readdir } from 'node:fs/promises';
 import { excelPathError, isBookCopy, isIgnored, listSourceFiles, readTextFile } from './fsutil';
@@ -46,6 +47,8 @@ export interface FileEntry {
   xlRaw?: string[];
   sheetName?: string;
   prev?: FileState;
+  /** ソースファイルの形式（無ければ新規。書き出すときは拡張子の標準を使う） */
+  format?: TextFormat;
 }
 
 export interface Scan {
@@ -145,7 +148,7 @@ export async function scanBook(ctx: ProjectContext, ref: BookRef): Promise<Scan>
     }
   }
 
-  const sources = new Map<string, { name: string; abs: string; canon: Canon }>();
+  const sources = new Map<string, { name: string; abs: string; canon: Canon; format: TextFormat }>();
   for (const f of await listSourceFiles(ctx.root, ref.dirAbs, ctx.ig)) {
     const err = validateFileName(f.name);
     if (err) {
@@ -159,12 +162,12 @@ export async function scanBook(ctx: ProjectContext, ref: BookRef): Promise<Scan>
     }
     const read = await readTextFile(f.abs);
     if (read.kind === 'binary') {
-      warnings.push(`「${f.name}」は UTF-8 テキストではないためスキップします`);
+      warnings.push(`「${f.name}」は扱えないためスキップします（${read.reason}）`);
       continue;
     }
     const canon = await ctx.canon.canonical(f.name, f.abs, read.text);
     if (canon.formatError) warnings.push(`「${f.name}」を整形できませんでした（ソース側）: ${canon.formatError}`);
-    sources.set(key, { name: f.name, abs: f.abs, canon });
+    sources.set(key, { name: f.name, abs: f.abs, canon, format: read.format });
   }
 
   const prevFiles = bookState(ctx.state, ref.rel).files;
@@ -188,6 +191,7 @@ export async function scanBook(ctx: ProjectContext, ref: BookRef): Promise<Scan>
       xlRaw: s?.lines,
       sheetName: s?.name,
       prev: p?.s,
+      format: f?.format,
     });
   }
 

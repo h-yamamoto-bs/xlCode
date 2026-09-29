@@ -205,6 +205,7 @@ export function BookView({
                   <th className="w-10 px-3 font-normal" />
                   <th className="px-2 font-normal">ファイル（シート）</th>
                   <th className="px-2 font-normal">状態</th>
+                  <th className="px-2 font-normal">形式</th>
                   <th className="px-3 font-normal">次の操作</th>
                 </tr>
               </thead>
@@ -218,13 +219,14 @@ export function BookView({
                       </td>
                       <td className="selectable px-2 font-mono text-[12.5px] text-fg">{f.name}</td>
                       <td className={clsx('px-2 text-[12px]', m.color)}>{m.label}</td>
+                      <td className="px-2 text-[12px] whitespace-nowrap text-faint">{f.format}</td>
                       <td className="px-3 text-[12px] text-muted">{m.hint}</td>
                     </tr>
                   );
                 })}
                 {files.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-3 py-3 text-[12px] text-faint">
+                    <td colSpan={5} className="px-3 py-3 text-[12px] text-faint">
                       コードシートがありません
                     </td>
                   </tr>

@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import ignore, { type Ignore } from 'ignore';
 import { AGENTS_SHEET, BOOK_SUFFIX, EXCEL_MAX_PATH, XLCODE_DIR } from './constants';
+import { decodeFile, type Decoded } from './encoding';
 
 /** .gitignore に関係なく常に除外するもの */
 const ALWAYS_IGNORED = ['.git/', `${XLCODE_DIR}/`, '~$*'];
@@ -45,17 +46,9 @@ export function excelPathError(abs: string): string | null {
   return `ブックのパスが ${abs.length} 文字あり、Excel が開ける ${EXCEL_MAX_PATH} 文字を超えています。フォルダを浅くするか名前を短くしてください: ${abs}`;
 }
 
-export type TextRead = { kind: 'text'; text: string } | { kind: 'binary' };
-
-/** UTF-8 テキストとして読む。NUL を含む・UTF-8 として不正な場合はバイナリ扱い */
-export async function readTextFile(abs: string): Promise<TextRead> {
-  const buf = await readFile(abs);
-  if (buf.includes(0)) return { kind: 'binary' };
-  try {
-    return { kind: 'text', text: new TextDecoder('utf-8', { fatal: true }).decode(buf) };
-  } catch {
-    return { kind: 'binary' };
-  }
+/** テキストとして読み、文字コード・改行コードを判定する（UTF-8 / UTF-8 BOM / UTF-16 LE / Shift_JIS） */
+export async function readTextFile(abs: string): Promise<Decoded> {
+  return decodeFile(await readFile(abs), path.basename(abs));
 }
 
 export interface DirFile {
