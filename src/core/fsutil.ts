@@ -110,8 +110,27 @@ export async function walkTree(root: string, ig: Ignore): Promise<TreeNode> {
   return walk(root, path.basename(path.resolve(root)));
 }
 
-/** プロジェクト配下の全ブックを検出する（絶対パス） */
-export async function findBooks(root: string, ig: Ignore): Promise<string[]> {
+/**
+ * 全ブックを検出する（絶対パス）。
+ * ブックの置き場所がソースと別なら、置き場所の下を探す（.gitignore は適用しない）
+ */
+export async function findBooks(root: string, ig: Ignore, bookRoot: string = root): Promise<string[]> {
+  if (path.resolve(bookRoot) !== path.resolve(root)) {
+    const out: string[] = [];
+    const walk = async (dirAbs: string): Promise<void> => {
+      for (const e of await readdir(dirAbs, { withFileTypes: true })) {
+        const abs = path.join(dirAbs, e.name);
+        if (e.isDirectory() && !e.name.startsWith('.')) await walk(abs);
+        else if (e.isFile() && isBookFile(e.name)) out.push(abs);
+      }
+    };
+    try {
+      await walk(bookRoot);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    }
+    return out.sort();
+  }
   const out: string[] = [];
   async function walk(dirAbs: string): Promise<void> {
     const entries = await readdir(dirAbs, { withFileTypes: true });

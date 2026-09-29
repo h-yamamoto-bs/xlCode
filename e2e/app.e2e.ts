@@ -168,3 +168,36 @@ describe('Web 版での編集', () => {
     await expect(win.getByText('まだこの PC に届いていない').count()).resolves.toBe(0);
   });
 });
+
+describe('ブックの置き場所', () => {
+  it('設定画面で置き場所を変えると既存のブックが移動し、そのまま Build できる', async () => {
+    const f = await project();
+    const { mkdtemp, readdir } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const xl = await mkdtemp(path.join(tmpdir(), 'xlfolder-'));
+    running = await launch(f.root);
+    const { app, win } = running;
+    // OS のフォルダ選択ダイアログを差し替える
+    await app.evaluate(({ dialog }, dir) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [dir] })) as typeof dialog.showOpenDialog;
+    }, xl);
+    await win.getByRole('button', { name: '設定' }).click();
+    await win.getByRole('button', { name: 'フォルダを選ぶ…' }).click();
+    await win.getByText('既存のブック 2 冊を、同じフォルダ構成のまま移動します').waitFor();
+    await win.getByRole('button', { name: '移動して変更' }).click();
+    await waitLog(win, /ブックの置き場所を変更しました/);
+    expect(await readdir(path.join(xl, 'app'))).toEqual(['app.xlcode.xlsx']);
+    expect((await readdir(f.file('app'))).filter((n) => n.endsWith('.xlsx'))).toEqual([]);
+
+    await f.editBook(path.relative(f.root, path.join(xl, 'app', 'app.xlcode.xlsx')), (b) =>
+      b.writeLines('util.ts', ['export const one = 1;', 'export const moved = 2;']),
+    );
+    await win.getByRole('button', { name: 'エクスプローラー' }).click();
+    await selectBook(win, APP_BOOK);
+    await win.getByRole('button', { name: 'Build', exact: true }).click();
+    await win.getByRole('button', { name: '閉じたので続行' }).click();
+    await waitLog(win, 'Build: 完了');
+    expect(await f.read('app/util.ts')).toBe('export const one = 1;\nexport const moved = 2;\n');
+  });
+});

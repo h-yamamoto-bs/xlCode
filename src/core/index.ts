@@ -10,3 +10,5 @@ export type { OpResult, OpStatus, Confirmation, Change } from './result';
 export type { FileStatus } from './scan';
 export { gitSummary, type GitSummary } from './git';
 export { bookRef } from './project';
+export { relocateBooks, type RelocateResult } from './relocate';
+export { bookPathFor, bookRootOf, resolveBook } from './project';

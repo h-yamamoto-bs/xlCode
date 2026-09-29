@@ -5,6 +5,7 @@ import type {
   GitSummary,
   OpResult,
   RefreshResult,
+  RelocateResult,
   SyncOptions,
   XlcodeConfig,
 } from '../core';
@@ -63,6 +64,8 @@ export interface ProjectInfo {
   hasAgents: boolean;
   /** ブックを持たないディレクトリ（ブック作成の候補） */
   dirsWithoutBook: string[];
+  /** ブックの置き場所（設定されていれば絶対パス。null ならソースの中） */
+  bookRoot: string | null;
 }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -86,7 +89,11 @@ export interface XlcodeApi {
   readConfig(root: string): Promise<Result<XlcodeConfig>>;
   writeConfig(root: string, config: XlcodeConfig): Promise<Result<void>>;
   openTerminal(root: string, dirRel: string): Promise<Result<void>>;
-  revealInFolder(root: string, rel: string): Promise<Result<void>>;
+  /** ブックをエクスプローラーで表示する */
+  revealInFolder(root: string, bookRel: string): Promise<Result<void>>;
+  pickFolder(title: string): Promise<string | null>;
+  /** ブックの置き場所を変え、既存のブックを移動する（null ならソースの中へ戻す） */
+  relocateBooks(root: string, newRoot: string | null): Promise<Result<RelocateResult>>;
   /** Agents.md / LocalAgents.md のみ読み書きできる */
   readRuleFile(root: string, rel: string): Promise<Result<string | null>>;
   writeRuleFile(root: string, rel: string, text: string): Promise<Result<void>>;

@@ -22,6 +22,8 @@ const api: XlcodeApi = {
   syncStatus: call('syncStatus') as XlcodeApi['syncStatus'],
   bookStamp: call('bookStamp') as XlcodeApi['bookStamp'],
   writeConfig: call('writeConfig') as XlcodeApi['writeConfig'],
+  pickFolder: call('pickFolder') as XlcodeApi['pickFolder'],
+  relocateBooks: call('relocateBooks') as XlcodeApi['relocateBooks'],
   revealInFolder: call('revealInFolder') as XlcodeApi['revealInFolder'],
   readRuleFile: call('readRuleFile') as XlcodeApi['readRuleFile'],
   writeRuleFile: call('writeRuleFile') as XlcodeApi['writeRuleFile'],

@@ -3,7 +3,9 @@ import { atomicWrite } from './atomic';
 import path from 'node:path';
 import type { Ignore } from 'ignore';
 import { AGENTS_SHEET, TREE_FILE, TREE_SHEET, TREE_VERSION_PREFIX, XLCODE_DIR } from './constants';
+import { loadConfig } from './config';
 import { findBooks, loadIgnore, toPosixRel, walkTree, type TreeNode } from './fsutil';
+import { bookRootOf } from './project';
 import { checkBookOpen } from './lock';
 import { normalizeText, sha256, textToLines } from './normalize';
 import { Book } from './workbook';
@@ -95,9 +97,10 @@ export async function refreshTree(root: string): Promise<RefreshResult> {
   await atomicWrite(path.join(root, XLCODE_DIR, TREE_FILE), [tree.header, ...tree.lines].join('\n') + '\n');
   const agents = await readRootAgents(root);
 
+  const bookRoot = bookRootOf(root, await loadConfig(root));
   const books: BookTreeResult[] = [];
-  for (const abs of await findBooks(root, ig)) {
-    const rel = toPosixRel(root, abs);
+  for (const abs of await findBooks(root, ig, bookRoot)) {
+    const rel = toPosixRel(bookRoot, abs);
     try {
       const open = await checkBookOpen(abs);
       if (open.open) {

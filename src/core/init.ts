@@ -1,9 +1,9 @@
-import { access, appendFile, readFile, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { AGENTS_SHEET, BOOK_SUFFIX, LOCAL_AGENTS_SHEET, XLCODE_DIR } from './constants';
+import { AGENTS_SHEET, LOCAL_AGENTS_SHEET, XLCODE_DIR } from './constants';
 import { excelPathError, listSourceFiles, readTextFile } from './fsutil';
 import { textToLines } from './normalize';
-import { bookRef, booksInDir, openProject } from './project';
+import { bookPathFor, bookRef, bookRootOf, booksInDir, openProject } from './project';
 import { bookState, saveState } from './state';
 import { applyTreeToBook, computeTree, readRootAgents } from './tree';
 import { validateFileName } from './sheetName';
@@ -65,13 +65,15 @@ export interface CreateBookResult {
 
 /** ディレクトリに <dir_name>.xlcode.xlsx を作成し、既存ファイルをシートとして取り込む */
 export async function createBook(root: string, dirAbs: string): Promise<CreateBookResult> {
-  const existing = await booksInDir(dirAbs);
+  const ctx = await openProject(root);
+  const bookRoot = bookRootOf(root, ctx.config);
+  const bookAbs = bookPathFor(root, bookRoot, dirAbs);
+  const existing = await booksInDir(path.dirname(bookAbs));
   if (existing.length > 0) throw new Error(`既にブックがあります: ${existing.join(', ')}`);
-  const bookAbs = path.join(dirAbs, `${path.basename(path.resolve(dirAbs))}${BOOK_SUFFIX}`);
   const longPath = excelPathError(bookAbs);
   if (longPath) throw new Error(longPath);
-  const ctx = await openProject(root);
-  const ref = bookRef(root, bookAbs);
+  await mkdir(path.dirname(bookAbs), { recursive: true });
+  const ref = bookRef(root, bookAbs, bookRoot);
 
   const localAgents = path.join(dirAbs, LOCAL_AGENTS_SHEET);
   if (!(await exists(localAgents))) await writeFile(localAgents, LOCAL_AGENTS_TEMPLATE);

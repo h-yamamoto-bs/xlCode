@@ -549,6 +549,46 @@ export function App() {
     [withBusy, root, log],
   );
 
+  // 設定画面を読み直すためのキー（ブックの置き場所を変えた後など）
+  const [settingsKey, setSettingsKey] = useState(0);
+
+  /** ブックの置き場所を変える（既存のブックも移動する）。newRoot が null ならソースの中へ戻す */
+  const onRelocate = useCallback(
+    (newRoot: string | null) =>
+      withBusy('ブックを移動中', async () => {
+        const count = project?.books.length ?? 0;
+        const { value } = await ask({
+          title: 'ブックの置き場所を変えますか？',
+          icon: 'info',
+          body: (
+            <>
+              <p className="font-mono text-[12px] break-all">
+                {project?.bookRoot ?? `${project?.root}（ソースの中）`}
+                <br />→ {newRoot ?? `${project?.root}（ソースの中）`}
+              </p>
+              {count > 0 && (
+                <p className="mt-2">
+                  既存のブック {count} 冊を、同じフォルダ構成のまま移動します。Excel で開いている場合は閉じてください。
+                </p>
+              )}
+            </>
+          ),
+          buttons: [
+            { label: count > 0 ? '移動して変更' : '変更', value: true, variant: 'primary' },
+            { label: 'キャンセル', value: false },
+          ],
+          cancelValue: false,
+        });
+        if (!value) return;
+        const r = await unwrap(api.relocateBooks(root!, newRoot));
+        for (const m of r.moved) log('info', `  移動: ${m}`);
+        log('success', `ブックの置き場所を変更しました: ${r.bookRoot ?? 'ソースの中'}`);
+        webSkip.current.clear();
+        setSettingsKey((k) => k + 1);
+      }),
+    [withBusy, ask, project, root, log],
+  );
+
   const onCreateBook = useCallback(
     (dirRel: string) =>
       withBusy('ブック作成中', async () => {
@@ -559,11 +599,12 @@ export function App() {
           body: (
             <>
               <p>
-                <span className="font-mono">
+                <span className="font-mono break-all">
+                  {project?.bookRoot ? `${project.bookRoot}/` : ''}
                   {dirRel ? `${dirRel}/` : ''}
                   {name}.xlcode.xlsx
                 </span>{' '}
-                を作成し、ディレクトリ内のファイルをシートとして取り込みます。
+                を作成し、{dirRel || 'ルート'} のファイルをシートとして取り込みます。
               </p>
               <p className="mt-2 text-muted">
                 あわせて .gitignore に xlCode 用の除外（*.xlcode.xlsx, ~$*,
@@ -889,7 +930,11 @@ export function App() {
               </div>
             ) : view === 'settings' ? (
               <SettingsView
+                key={settingsKey}
                 root={project.root}
+                bookRoot={project.bookRoot}
+                bookCount={project.books.length}
+                onRelocate={onRelocate}
                 mode={mode}
                 onMode={setExcelMode}
                 onError={(m) => log('error', m)}

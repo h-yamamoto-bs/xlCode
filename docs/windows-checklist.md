@@ -78,3 +78,22 @@ xlCode は Windows のシェルプロパティ `System.SyncTransferStatus` と�
 | 7-8 | 2 台の PC で同じブックを編集 | 複製（ブック名-PC名.xlsx）ができたら警告が出る | | |
 
 判定がずれていたら、生の値を添えて報告する（`src/main/syncStatus.ts` の `interpret` を直す）。
+
+## 8. ブックの置き場所（ソースは OneDrive の外、ブックは OneDrive 内）
+
+| # | 手順 | 期待する結果 | 結果 |
+|---|---|---|---|
+| 8-1 | ソースを `C:\dev\…`（OneDrive の外）に置き、設定 →「ブックの置き場所」で OneDrive 内の専用フォルダを選ぶ | 既存のブックが同じフォルダ構成で移動する | |
+| 8-2 | 「デスクトップで開く」→ Copilot を使う | Copilot が使える（OneDrive 上のブックのため） | |
+| 8-3 | 「Webで開く」 | 置き場所の URL から正しく開く（URL は OneDrive の同期設定から自動で求める） | |
+| 8-4 | OneDrive の同期状態 | ブックごとに表示される（ソースは OneDrive 外なので対象外） | |
+| 8-5 | パスの長さ | OneDrive のパスが長い場合、218 文字を超えると警告が出る | |
+
+## 9. 文字コード・改行コード
+
+| # | 手順 | 期待する結果 | 結果 |
+|---|---|---|---|
+| 9-1 | Copilot に `.bat` を作らせて Build → ダブルクリックで実行 | 日本語の echo が化けずに表示される（Shift_JIS・CRLF） | |
+| 9-2 | Copilot に `.ps1` を作らせて Build → Windows PowerShell 5.1 で実行 | 日本語が化けない（UTF-8 BOM・CRLF） | |
+| 9-3 | 既存の Shift_JIS のファイルを Excel で編集して Build | Shift_JIS のまま。エディタで開いて化けていない | |
+| 9-4 | Git for Windows（core.autocrlf=true）で checkout した CRLF のファイルを Build | CRLF のまま。`git diff` に改行だけの差分が出ない | |

@@ -6,7 +6,7 @@ import { CONFLICT_PREFIX } from './constants';
 import { autoCommit, isGitRepo, uncommittedChanges } from './git';
 import { checkBookOpen } from './lock';
 import { textToLines } from './normalize';
-import { bookRef, openProject, type BookRef, type ProjectContext } from './project';
+import { bookRef, bookRootOf, openProject, type BookRef, type ProjectContext } from './project';
 import { newResult, type OpResult } from './result';
 import { scanBook, type FileEntry, type Scan } from './scan';
 import { bookState, saveState, type BookState } from './state';
@@ -183,7 +183,7 @@ function settleClean(scan: Scan, bs: BookState, e: FileEntry, r: OpResult): bool
  */
 export async function build(root: string, bookAbs: string, opts: BuildOptions = {}): Promise<OpResult> {
   const ctx = await openProject(root);
-  const ref = bookRef(root, bookAbs);
+  const ref = bookRef(root, bookAbs, bookRootOf(root, ctx.config));
   const r = newResult();
   const scan = await preflight(ctx, ref, r);
   if (!scan) return { ...r, status: 'error' };
@@ -290,7 +290,7 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
 /** Sync（ソースコード → Excel）5章 */
 export async function sync(root: string, bookAbs: string, opts: SyncOptions = {}): Promise<OpResult> {
   const ctx = await openProject(root);
-  const ref = bookRef(root, bookAbs);
+  const ref = bookRef(root, bookAbs, bookRootOf(root, ctx.config));
   const r = newResult();
   const scan = await preflight(ctx, ref, r);
   if (!scan) return { ...r, status: 'error' };

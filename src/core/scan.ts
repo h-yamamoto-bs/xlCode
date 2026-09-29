@@ -5,7 +5,7 @@ import { AGENTS_SHEET } from './constants';
 import { readdir } from 'node:fs/promises';
 import { excelPathError, isBookCopy, isIgnored, listSourceFiles, readTextFile } from './fsutil';
 import { normalizeText } from './normalize';
-import { booksInDir, type BookRef, type ProjectContext } from './project';
+import { booksInDir, exists, type BookRef, type ProjectContext } from './project';
 import { classifySheet, sheetKey, validateFileName } from './sheetName';
 import { bookState, type FileState } from './state';
 import { Book } from './workbook';
@@ -80,8 +80,12 @@ export function decideStatus(prev: FileState | undefined, src: Canon | undefined
 export async function scanBook(ctx: ProjectContext, ref: BookRef): Promise<Scan> {
   const errors: string[] = [];
   const warnings: string[] = [];
-  const books = await booksInDir(ref.dirAbs);
+  const books = await booksInDir(path.dirname(ref.abs));
   if (books.length > 1) errors.push(`同一ディレクトリに複数の .xlcode.xlsx があります: ${books.join(', ')}`);
+  if (!(await exists(ref.dirAbs))) {
+    errors.push(`ブックに対応するソースのフォルダがありません: ${ref.dirAbs}（ブックの置き場所の設定を確認してください）`);
+    return { book: await Book.load(ref.abs), ref, errors, warnings, entries: [], deletes: [], conflictSheets: [] };
+  }
   const copies = (await readdir(path.dirname(ref.abs))).filter(isBookCopy);
   if (copies.length > 0) {
     warnings.push(

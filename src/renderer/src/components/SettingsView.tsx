@@ -43,12 +43,18 @@ const input =
 
 export function SettingsView({
   root,
+  bookRoot,
+  bookCount,
+  onRelocate,
   mode,
   onMode,
   onSaved,
   onError,
 }: {
   root: string;
+  bookRoot: string | null;
+  bookCount: number;
+  onRelocate: (newRoot: string | null) => void;
   mode: ExcelMode;
   onMode: (m: ExcelMode) => void;
   onSaved: () => void;
@@ -121,13 +127,42 @@ export function SettingsView({
             <Icon.Save size={14} /> 保存
           </Button>
         </div>
+        <Row
+          title="ブックの置き場所"
+          desc={
+            <>
+              OneDrive 内の専用フォルダを指定すると、ソースと同じフォルダ構成でブックだけをそこに置きます。
+              ソース・Git・node_modules は OneDrive の外に置けます。
+              {bookCount > 0 && ' 変更すると、既存のブックも移動します。'}
+            </>
+          }
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className="min-w-0 flex-1 truncate rounded-[2px] border border-line bg-side px-2 py-1 font-mono text-[12.5px]"
+              title={bookRoot ?? ''}
+            >
+              {bookRoot ?? <span className="text-muted">ソースの各フォルダの中（{root}）</span>}
+            </span>
+            <Button
+              onClick={async () => {
+                const dir = await api.pickFolder('ブックの置き場所（OneDrive 内の専用フォルダ）');
+                if (dir) onRelocate(dir);
+              }}
+            >
+              <Icon.Folder size={14} /> フォルダを選ぶ…
+            </Button>
+            {bookRoot && <Button onClick={() => onRelocate(null)}>ソースの中に戻す</Button>}
+          </div>
+        </Row>
         {config && (
           <>
             <Row
               title="Web 版の URL"
               desc={
                 <>
-                  Web 版で開くときのプロジェクトルートの URL。空欄なら Windows の OneDrive 同期設定から自動で求めます。
+                  Web 版で開くときの、ブックの置き場所（未設定ならプロジェクトルート）の URL。空欄なら Windows の
+                  OneDrive 同期設定から自動で求めます。
                   <br />
                   例: https://contoso-my.sharepoint.com/personal/me_contoso_com/Documents/shop
                 </>

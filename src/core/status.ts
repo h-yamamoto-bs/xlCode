@@ -1,6 +1,6 @@
 import { TREE_SHEET } from './constants';
 import { defaultFormat, formatLabel } from './encoding';
-import { bookRef, openProject } from './project';
+import { bookRef, bookRootOf, openProject } from './project';
 import { parseTreeVersion } from './tree';
 import { scanBook, type FileStatus } from './scan';
 
@@ -18,7 +18,7 @@ export interface BookStatus {
 /** 読み取り専用で各ファイルの状態を返す（GUI の「編集中ファイル一覧」用、5.5-3） */
 export async function bookStatus(root: string, bookAbs: string): Promise<BookStatus> {
   const ctx = await openProject(root);
-  const ref = bookRef(root, bookAbs);
+  const ref = bookRef(root, bookAbs, bookRootOf(root, ctx.config));
   const scan = await scanBook(ctx, ref);
   return {
     book: ref.rel,

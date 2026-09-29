@@ -19,6 +19,11 @@ export interface XlcodeConfig {
    * 未設定なら Windows の OneDrive 設定から自動で求める。
    */
   webUrlBase?: string;
+  /**
+   * ブックの置き場所（例: OneDrive 内の専用フォルダ）。ソースと同じフォルダ構成でブックだけを置く。
+   * 未設定ならソースの各フォルダの中に置く。
+   */
+  bookRoot?: string;
 }
 
 export const DEFAULT_CONFIG: XlcodeConfig = {
