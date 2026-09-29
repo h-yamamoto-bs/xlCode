@@ -48,11 +48,33 @@ export function Welcome({
               </li>
               <li>
                 <span className="text-muted">3.</span> Excel を閉じて <b>Build</b>
+                <span className="ml-1 text-muted">— 変更をソースコードへ</span>
               </li>
               <li>
                 <span className="text-muted">4.</span> エディタで触ったら <b>Sync</b>
+                <span className="ml-1 text-muted">— 変更をシートへ</span>
               </li>
             </ol>
+            <div className="mt-4 rounded-[3px] border border-line bg-side px-3 py-2 text-[12px] leading-relaxed">
+              <div className="flex items-center gap-1.5">
+                <Icon.Build size={13} className="text-modified" />
+                <b>Build</b>
+                <span className="text-muted">Excel</span>
+                <Icon.ArrowRight size={12} className="text-muted" />
+                <span className="text-muted">ソースコード</span>
+              </div>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Icon.Sync size={13} className="text-info" />
+                <b>Sync</b>
+                <span className="text-muted">ソースコード</span>
+                <Icon.ArrowRight size={12} className="text-muted" />
+                <span className="text-muted">Excel</span>
+              </div>
+              <div className="mt-1.5 text-faint">
+                どちらも実行前に Git へ自動コミットし、直前の 1
+                回は「元に戻す」で戻せます。画面の「次の操作」に従えば迷いません。
+              </div>
+            </div>
           </div>
         </div>
         <div className="mt-10 flex flex-wrap gap-x-5 gap-y-2 text-[12px] text-muted">

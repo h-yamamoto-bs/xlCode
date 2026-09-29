@@ -2,11 +2,13 @@ import type {
   BookStatus,
   BuildOptions,
   CreateBookResult,
+  FileDiff,
   GitSummary,
   OpResult,
   RefreshResult,
   RelocateResult,
   SyncOptions,
+  UndoResult,
   XlcodeConfig,
 } from '../core';
 
@@ -81,6 +83,10 @@ export interface XlcodeApi {
   sync(root: string, bookRel: string, opts: SyncOptions): Promise<Result<OpResult>>;
   /** web の場合は開いた URL を返す */
   openInExcel(root: string, bookRel: string, via: OpenVia): Promise<Result<string | null>>;
+  /** 変更のあるファイルごとの差分（変更を確認する用） */
+  bookDiff(root: string, bookRel: string): Promise<Result<FileDiff[]>>;
+  /** 直前の Build / Sync を元に戻す */
+  undoLast(root: string, bookRel: string): Promise<Result<UndoResult>>;
   /** 各ブックがデスクトップ版 Excel で開かれているか（ポーリング用） */
   bookLocks(root: string, bookRels: string[]): Promise<Result<Record<string, boolean>>>;
   syncStatus(root: string, bookRels: string[]): Promise<Result<SyncReport>>;

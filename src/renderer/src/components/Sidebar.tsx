@@ -106,9 +106,21 @@ export function Sidebar({
                       </span>
                     )}
                     {badge.problems > 0 && <Icon.Error size={12} className="text-deleted" aria-label="エラー" />}
-                    {badge.conflict > 0 && <span className="text-conflict">C{badge.conflict}</span>}
-                    {badge.excel > 0 && <span className="text-modified">E{badge.excel}</span>}
-                    {badge.source > 0 && <span className="text-info">S{badge.source}</span>}
+                    {badge.conflict > 0 && (
+                      <span className="text-conflict" title={`両側で変更: ${badge.conflict}（Build で衝突シート作成）`}>
+                        C{badge.conflict}
+                      </span>
+                    )}
+                    {badge.excel > 0 && (
+                      <span className="text-modified" title={`Excel側で編集中: ${badge.excel}（Build で反映）`}>
+                        E{badge.excel}
+                      </span>
+                    )}
+                    {badge.source > 0 && (
+                      <span className="text-info" title={`エディタ側で変更: ${badge.source}（Sync で反映）`}>
+                        S{badge.source}
+                      </span>
+                    )}
                   </span>
                 </div>
                 {isOpen && (
@@ -120,7 +132,7 @@ export function Sidebar({
                           key={f.name}
                           role="treeitem"
                           className="flex h-[22px] items-center gap-1.5 pr-3 pl-[38px] hover:bg-hover"
-                          title={m.label}
+                          title={m.hint ? `${m.label} — ${m.hint}` : m.label}
                         >
                           <Icon.File size={14} className="shrink-0 text-muted" />
                           <span className={clsx('truncate', f.status === 'clean' ? 'text-fg' : m.color)}>{f.name}</span>

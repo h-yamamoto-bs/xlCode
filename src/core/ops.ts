@@ -10,6 +10,7 @@ import { bookRef, bookRootOf, openProject, type BookRef, type ProjectContext } f
 import { newResult, type OpResult } from './result';
 import { scanBook, type FileEntry, type Scan } from './scan';
 import { bookState, saveState, type BookState } from './state';
+import { takeSnapshot } from './undo';
 
 export interface BuildOptions {
   /** 確認ダイアログでユーザーが続行を選んだ */
@@ -192,11 +193,14 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
     return { ...r, status: 'error' };
   }
   const bs = bookState(ctx.state, ref.rel);
+  // 元に戻す用に、書き換える前の状態を控える
+  const before = structuredClone(bs);
 
   const conflicts = scan.entries.filter((e) => e.status === 'conflict');
   if (conflicts.length > 0) {
     recordConflicts(scan, bs, conflicts, r);
     if (!(await assertClosed(ref, r, '何も変更していません'))) return r;
+    await takeSnapshot(root, ref, 'Build', before, []);
     await scan.book.save(ref.abs);
     await saveState(root, ctx.state);
     r.errors.push(
@@ -236,6 +240,12 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
   if (r.confirmations.length > 0 && !opts.confirmed) return { ...r, status: 'confirm' };
   if (useGit && !(await commitBefore(ctx, ref, 'Build', r))) return r;
   if (!(await assertClosed(ref, r, 'ソースは変更していません'))) return r;
+  if (scan.entries.some((e) => e.status !== 'clean' && e.status !== 'gone') || scan.deletes.length > 0) {
+    await takeSnapshot(root, ref, 'Build', before, [
+      ...toBuild.map((e) => e.name),
+      ...scan.deletes.map((d) => d.fileName),
+    ]);
+  }
 
   let bookChanged = false;
   for (const e of scan.entries) {
@@ -295,6 +305,7 @@ export async function sync(root: string, bookAbs: string, opts: SyncOptions = {}
   const scan = await preflight(ctx, ref, r);
   if (!scan) return { ...r, status: 'error' };
   const bs = bookState(ctx.state, ref.rel);
+  const before = structuredClone(bs);
 
   const unbuilt = scan.entries.filter((e) => e.status === 'excel-changed' || e.status === 'excel-new');
   if (unbuilt.length > 0 && !opts.discardExcelChanges) {
@@ -346,7 +357,10 @@ export async function sync(root: string, bookAbs: string, opts: SyncOptions = {}
   }
   if (conflicts.length > 0) recordConflicts(scan, bs, conflicts, r);
   if (bookChanged && !(await assertClosed(ref, r, 'ブックは変更していません'))) return r;
-  if (bookChanged) await scan.book.save(ref.abs);
+  if (bookChanged) {
+    await takeSnapshot(root, ref, 'Sync', before, []);
+    await scan.book.save(ref.abs);
+  }
   bs.lastSyncAt = new Date().toISOString();
   await saveState(root, ctx.state);
   return conflicts.length > 0 ? { ...r, status: 'conflict' } : r;

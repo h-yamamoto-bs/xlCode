@@ -5,6 +5,7 @@ import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import {
   AGENTS_SHEET,
   LOCAL_AGENTS_SHEET,
+  bookDiff,
   bookStatus,
   build,
   checkBookOpen,
@@ -23,6 +24,7 @@ import {
   refreshTree,
   saveConfig,
   sync,
+  undoLast,
   type XlcodeConfig,
 } from '../core';
 import { atomicWrite } from '../core/atomic';
@@ -164,6 +166,12 @@ export function registerIpc(): void {
   );
   ipcMain.handle('sync', (_e, root: string, book: string, opts) =>
     wrap(async () => sync(root, await bookAbsOf(root, book), opts)),
+  );
+  ipcMain.handle('bookDiff', (_e, root: string, book: string) =>
+    wrap(async () => bookDiff(root, await bookAbsOf(root, book))),
+  );
+  ipcMain.handle('undoLast', (_e, root: string, book: string) =>
+    wrap(async () => undoLast(root, bookRef(root, await bookAbsOf(root, book), await bookRootFor(root)))),
   );
   ipcMain.handle('pickFolder', async (e, title: string) => {
     const win = BrowserWindow.fromWebContents(e.sender)!;

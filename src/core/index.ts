@@ -3,7 +3,9 @@ export { DEFAULT_CONFIG, loadConfig, saveConfig, type XlcodeConfig } from './con
 export { build, sync, type BuildOptions, type SyncOptions } from './ops';
 export { refreshTree, checkTree, computeTree, type RefreshResult, type BookTreeResult, type TreeCheck } from './tree';
 export { initProject, createBook, type CreateBookResult } from './init';
-export { bookStatus, type BookStatus } from './status';
+export { bookStatus, bookDiff, type BookStatus, type FileDiff } from './status';
+export { undoLast, undoInfo, type UndoInfo, type UndoResult } from './undo';
+export type { DiffLine, Hunk } from './diff';
 export { checkBookOpen } from './lock';
 export { findBooks, loadIgnore } from './fsutil';
 export type { OpResult, OpStatus, Confirmation, Change } from './result';

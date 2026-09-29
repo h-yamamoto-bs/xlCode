@@ -201,3 +201,70 @@ describe('ブックの置き場所', () => {
     expect(await f.read('app/util.ts')).toBe('export const one = 1;\nexport const moved = 2;\n');
   });
 });
+
+describe('迷わないための案内', () => {
+  it('次の操作を 1 つ示し、対応するボタンだけを強調する', async () => {
+    const f = await project();
+    await f.editBook(APP_BOOK, (b) => b.writeLines('util.ts', ['export const one = 1;', 'export const two = 2;']));
+    running = await launch(f.root);
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    const note = win.getByRole('note');
+    await note.getByText('Build で Excel 側の変更 1 ファイルをソースコードへ出力').waitFor();
+    // ツールバーの Build が primary（アクセント色）、Sync は通常
+    const build = win.getByRole('button', { name: 'Build', exact: true });
+    await expect(build.evaluate((el) => el.className.includes('bg-accent'))).resolves.toBe(true);
+    const syncBtn = win.getByRole('button', { name: 'Sync', exact: true });
+    await expect(syncBtn.evaluate((el) => el.className.includes('bg-accent'))).resolves.toBe(false);
+    // 案内の中のボタンからも実行できる
+    await note.getByRole('button', { name: 'Build' }).click();
+    await win.getByRole('button', { name: '閉じたので続行' }).click();
+    await waitLog(win, 'Build: 完了');
+    await note.getByText('すべて同期済み').waitFor();
+  });
+
+  it('押せないボタンには理由が出る', async () => {
+    const f = await project();
+    running = await launch(f.root);
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    const lock = f.file('app/~$app.xlcode.xlsx');
+    await writeFile(lock, '');
+    const build = win.getByRole('button', { name: 'Build', exact: true });
+    await build.waitFor();
+    await win.getByRole('note').getByText('Excel を閉じると Build / Sync できます').waitFor({ timeout: 10_000 });
+    await expect(build.getAttribute('title')).resolves.toContain('開かれているため実行できません');
+    await rm(lock);
+  });
+});
+
+describe('変更の確認と元に戻す', () => {
+  it('Build 前に差分を確認でき、Build 後は結果が画面に出て元に戻せる', async () => {
+    const f = await project();
+    await f.editBook(APP_BOOK, (b) => b.writeLines('util.ts', ['export const one = 1;', 'export const two = 2;']));
+    running = await launch(f.root);
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    await win.getByRole('button', { name: '変更を確認' }).click();
+    await win.getByText('+1', { exact: true }).waitFor();
+    await win.getByText('Build 後のソースファイル', { exact: false }).waitFor();
+    await expect(win.getByLabel('util.ts の差分').getByText('export const two = 2;').isVisible()).resolves.toBe(true);
+
+    await win.getByRole('button', { name: 'Build', exact: true }).click();
+    await win.getByRole('button', { name: '閉じたので続行' }).click();
+    await waitLog(win, 'Build: 完了');
+    const status = win.getByRole('status');
+    await status.getByText('Build 完了').waitFor();
+    await expect(status.getByText('ファイル出力 1').isVisible()).resolves.toBe(true);
+    expect(await f.read('app/util.ts')).toBe('export const one = 1;\nexport const two = 2;\n');
+
+    await win.getByRole('button', { name: 'Build を元に戻す' }).click();
+    await win.getByText('を元に戻しますか？').waitFor();
+    await expect(win.getByRole('dialog').getByText('util.ts').isVisible()).resolves.toBe(true);
+    await win.getByRole('button', { name: '元に戻す', exact: true }).click();
+    await waitLog(win, 'Build を元に戻しました: app/app.xlcode.xlsx');
+    expect(await f.read('app/util.ts')).toBe('export const one = 1;\n');
+    await win.getByRole('note').getByText('Build で Excel 側の変更 1 ファイル').waitFor();
+    await expect(win.getByRole('button', { name: 'Build を元に戻す' }).count()).resolves.toBe(0);
+  });
+});

@@ -180,4 +180,30 @@ export const Icon = {
       <path d="M4.5 12.5a3 3 0 0 1-.3-6A4 4 0 0 1 12 6.2a3.2 3.2 0 0 1 .3 6.3z" />
     </Svg>
   ),
+  Undo: (p: P) => (
+    <Svg {...p}>
+      <path d="M5.5 4.5 2.5 7.5l3 3" />
+      <path d="M2.5 7.5h7a3 3 0 0 1 0 6H6" />
+    </Svg>
+  ),
+  ArrowRight: (p: P) => (
+    <Svg {...p}>
+      <path d="M2.5 8h11M9.5 4l4 4-4 4" />
+    </Svg>
+  ),
+  ArrowLeft: (p: P) => (
+    <Svg {...p}>
+      <path d="M13.5 8h-11M6.5 4l-4 4 4 4" />
+    </Svg>
+  ),
+  Diff: (p: P) => (
+    <Svg {...p}>
+      <path d="M5 2.5v5M2.5 5h5M2.5 11.5h5M8.5 2.5v11" />
+    </Svg>
+  ),
+  Lightbulb: (p: P) => (
+    <Svg {...p}>
+      <path d="M6 13.5h4M6.5 11.5h3M8 2a4 4 0 0 0-2.5 7.1c.4.4.7 1 .7 1.6v.8h3.6v-.8c0-.6.3-1.2.7-1.6A4 4 0 0 0 8 2z" />
+    </Svg>
+  ),
 };

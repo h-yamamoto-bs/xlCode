@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Confirmation, OpResult } from '../../core';
 import type { ExcelMode, OpenVia, ProjectInfo, SyncReport } from '../../shared/api';
 import { api, storageGet, storageSet, unwrap } from './api';
-import { BookView } from './components/BookView';
+import { ACTION_LABEL, BookView, type LastResult } from './components/BookView';
 import { useDialog } from './components/Dialogs';
 import { Icon } from './components/Icons';
 import { Panel, type LogEntry, type Problem } from './components/Panel';
@@ -21,16 +21,6 @@ interface Opened {
   via: OpenVia;
   stamp?: string;
 }
-
-const ACTION_LABEL: Record<string, string> = {
-  'write-file': 'ファイル出力',
-  'delete-file': 'ファイル削除',
-  'write-sheet': 'シート更新',
-  'delete-sheet': 'シート削除',
-  'reformat-sheet': 'シート整形',
-  'conflict-sheet': '衝突シート作成',
-  commit: '自動コミット',
-};
 
 function now(): string {
   return new Date().toLocaleTimeString('ja-JP', { hour12: false });
@@ -54,6 +44,16 @@ export function App() {
   }, []);
   const hasDrafts = Object.keys(drafts).length > 0;
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  // ブックごとの直前の操作の結果（画面に出して、何が起きたかをその場で示す）
+  const [lastResults, setLastResults] = useState<Record<string, LastResult>>({});
+  const setLastResult = useCallback((book: string, r: LastResult | null) => {
+    setLastResults((prev) => {
+      const next = { ...prev };
+      if (r) next[book] = r;
+      else delete next[book];
+      return next;
+    });
+  }, []);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelTab, setPanelTab] = useState<'problems' | 'output'>('output');
   const [busy, setBusy] = useState<string | null>(null);
@@ -130,7 +130,8 @@ export function App() {
   );
 
   const logResult = useCallback(
-    (label: string, r: OpResult) => {
+    (label: string, book: string, r: OpResult) => {
+      setLastResult(book, { label, time: now(), result: r });
       for (const c of r.changes) log('info', `  ${ACTION_LABEL[c.action] ?? c.action}: ${c.target}`);
       for (const w of r.warnings) log('warning', `  警告: ${w}`);
       for (const e of r.errors) log('error', `  エラー: ${e}`);
@@ -145,7 +146,7 @@ export function App() {
       log(level, `${label}: ${text}`);
       if (r.status === 'error') setPanelOpen(true);
     },
-    [log],
+    [log, setLastResult],
   );
 
   // ---- 確認ダイアログ ----
@@ -268,7 +269,7 @@ export function App() {
     async (book: string): Promise<boolean> => {
       log('info', `Build 開始: ${book}`);
       const r = await runConfirmed('Build', (confirmed) => unwrap(api.build(root!, book, { confirmed })));
-      logResult('Build', r);
+      logResult('Build', book, r);
       if (r.status === 'conflict') await showConflicts(r);
       return r.status === 'ok';
     },
@@ -316,7 +317,7 @@ export function App() {
           discard ? [] : ['uncommitted'],
         );
       }
-      logResult('Sync', r);
+      logResult('Sync', book, r);
       if (r.status === 'conflict') await showConflicts(r);
       return r.status === 'ok' || r.status === 'conflict' ? r : null;
     },
@@ -515,6 +516,52 @@ export function App() {
     [withBusy, ready, syncFlow, root, log, ask, waitForOneDrive],
   );
 
+  /** 直前の Build / Sync を元に戻す（ゴール: 戻せない操作だけ確認する。これは戻せないので確認する） */
+  const onUndo = useCallback(
+    (book: string) =>
+      withBusy('元に戻しています', async () => {
+        const info = project?.books.find((b) => b.rel === book)?.undo;
+        if (!info) return;
+        const when = new Date(info.at).toLocaleString('ja-JP', { hour12: false });
+        const { value } = await ask({
+          title: `${when} の ${info.label} を元に戻しますか？`,
+          icon: 'warning',
+          body: (
+            <>
+              <p>
+                ブック・state.json
+                {info.files.length > 0 && '・次のソースファイル'}を、{info.label} の直前の状態に戻します。
+              </p>
+              {info.files.length > 0 && (
+                <ul className="my-2 rounded-[3px] border border-line bg-editor px-3 py-1.5 font-mono text-[12px]">
+                  {info.files.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-2 text-muted">
+                {info.label} の後にこれらのファイルやブックへ加えた編集は失われます。戻せるのは直前の 1 回だけです（Git
+                の自動コミットはそのまま残ります）。
+              </p>
+            </>
+          ),
+          buttons: [
+            { label: '元に戻す', value: true, variant: 'danger' },
+            { label: 'キャンセル', value: false },
+          ],
+          cancelValue: false,
+        });
+        if (!value) return;
+        const r = await unwrap(api.undoLast(root!, book));
+        for (const f of r.restored) log('info', `  書き戻し: ${f}`);
+        for (const f of r.removed) log('info', `  削除: ${f}`);
+        log('success', `${r.label} を元に戻しました: ${book}`);
+        setLastResult(book, null);
+        webSkip.current.delete(book);
+      }),
+    [withBusy, project, ask, root, log, setLastResult],
+  );
+
   const onRefreshTree = useCallback(
     (r: string | null = root) =>
       withBusy(
@@ -654,6 +701,7 @@ export function App() {
       setRoot(p);
       setProject(null);
       setSelected(null);
+      setLastResults({});
       webSkip.current.clear();
       const next = [p, ...recent.filter((x) => x !== p)].slice(0, 8);
       setRecent(next);
@@ -955,6 +1003,8 @@ export function App() {
               />
             ) : book ? (
               <BookView
+                key={book.rel}
+                root={project.root}
                 book={book}
                 treeVersion={project.treeVersion}
                 busy={busy !== null}
@@ -964,6 +1014,9 @@ export function App() {
                 onOpenExcel={(via) => void onOpenExcel(book.rel, via)}
                 onSync={() => void onSync(book.rel)}
                 onBuild={() => void onBuild(book.rel)}
+                onUndo={() => void onUndo(book.rel)}
+                lastResult={lastResults[book.rel]}
+                onDismissResult={() => setLastResult(book.rel, null)}
                 onTerminal={() =>
                   void unwrap(api.openTerminal(project.root, book.dirRel)).catch((e: Error) => log('error', e.message))
                 }
