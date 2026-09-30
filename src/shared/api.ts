@@ -116,4 +116,6 @@ export interface XlcodeApi {
   importTool(root: string, dirRel: string, file: string): Promise<Result<CreateBookResult>>;
   /** VBA モードのビルド結果（.xlsm）を開く。reveal ならフォルダで表示 */
   openOutput(root: string, bookRel: string, reveal: boolean): Promise<Result<void>>;
+  /** VBA モードの、上書き前のビルド結果のバックアップ（.xlcode/backup/）のフォルダを開く */
+  openBackups(root: string, bookRel: string): Promise<Result<void>>;
 }

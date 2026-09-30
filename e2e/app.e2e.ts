@@ -222,11 +222,30 @@ describe('ブックの置き場所', () => {
     const { readdir } = await import('node:fs/promises');
     expect(await readdir(f.root)).toEqual(expect.arrayContaining(['Module1.bas', 'References.refs']));
 
-    // この環境（Windows 以外）では Excel が無いため、エラーになる
+    // 作成の結果はブック画面に出る
+    const status = win.getByRole('status');
+    await status.getByText(/ブックを作成しました（\d+ シート）/).waitFor();
+    // この環境（Windows 以外）では Excel が無いため、「次の操作」で先に伝え、Build はエラーになる
+    await win.getByRole('note').getByText('VBA の Build は Windows のデスクトップ版 Excel が必要です').waitFor();
     await win.getByRole('button', { name: 'Build', exact: true }).click();
     await win.getByRole('button', { name: '閉じたので続行' }).click();
     await waitLog(win, /Windows とデスクトップ版 Excel が必要です/);
+    await status.getByText('Build を中断しました（何も書き換えていません）').waitFor();
     expect(await readdir(f.root)).not.toContain(`${name}.xlsm`);
+
+    // VBA モードでも Sync は使える（エディタで直したソースをシートへ）
+    await f.write('Module1.bas', 'Option Explicit\r\nSub FromEditor()\r\nEnd Sub\r\n');
+    await win.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await win.getByRole('note').getByText('Sync でエディタ側の変更 1 ファイルをシートへ反映').waitFor();
+    await win.getByRole('button', { name: 'Sync', exact: true }).click();
+    await win.getByRole('button', { name: '閉じたので続行' }).click();
+    await win.getByRole('button', { name: '続行', exact: true }).click();
+    await waitLog(win, 'Sync: 完了');
+    expect(await f.sheet(`${name}.xlcode.xlsx`, 'Module1.bas')).toEqual([
+      'Option Explicit',
+      'Sub FromEditor()',
+      'End Sub',
+    ]);
   });
 
   it('VBA: 既存の Excel ツールから作成を選ぶと、ファイルを選んで取り込む（Windows 以外ではエラー）', async () => {
@@ -243,6 +262,11 @@ describe('ブックの置き場所', () => {
     await win.getByTitle('ルート にブックを作成').click();
     await win.getByRole('button', { name: 'プロジェクトの中に置く' }).click();
     await win.getByRole('button', { name: '既存の Excel ツールから作成…' }).click();
+    // 失敗の理由はその場（ダイアログ）に出る
+    const dialog = win.getByRole('dialog', { name: '取り込めませんでした' });
+    await dialog.getByText(/Windows とデスクトップ版 Excel が必要です/).waitFor();
+    await expect(dialog.getByText('元のファイルは変更していません', { exact: false }).isVisible()).resolves.toBe(true);
+    await dialog.getByRole('button', { name: '閉じる' }).click();
     await waitLog(win, /Windows とデスクトップ版 Excel が必要です/);
   });
 

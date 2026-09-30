@@ -135,9 +135,10 @@ export function App() {
       for (const c of r.changes) log('info', `  ${ACTION_LABEL[c.action] ?? c.action}: ${c.target}`);
       for (const w of r.warnings) log('warning', `  警告: ${w}`);
       for (const e of r.errors) log('error', `  エラー: ${e}`);
+      const written = r.changes.some((c) => c.action !== 'commit');
       const summary: Record<OpResult['status'], [LogEntry['level'], string]> = {
         ok: ['success', r.changes.length === 0 ? '変更なし' : '完了'],
-        error: ['error', '中断しました'],
+        error: ['error', written ? '途中で中断しました（上の変更までは書き換えています）' : '中断しました'],
         confirm: ['warning', 'キャンセルしました'],
         conflict: ['warning', '衝突シートを作成しました'],
         'needs-decision': ['warning', 'キャンセルしました'],
@@ -534,6 +535,11 @@ export function App() {
             <>
               <p>
                 ブック・state.json
+                {info.output && (
+                  <>
+                    ・ビルド結果 <span className="font-mono">{info.output}</span>
+                  </>
+                )}
                 {info.files.length > 0 && '・次のソースファイル'}を、{info.label} の直前の状態に戻します。
               </p>
               {info.files.length > 0 && (
@@ -745,12 +751,12 @@ export function App() {
                     のデスクトップ版 Excel が必要）。
                   </li>
                   <li>
-                    <span className="text-fg">空のブックを作成</span>：{dirRel ? `${dirRel}/` : ''}vba/
-                    に控えがあれば、そのコードをシートにします。
+                    <span className="text-fg">空のブックを作成</span>：{dirRel || 'ルート'} に .bas / .cls / .frm
+                    があればそれをシートにし、無ければ Module1.bas と References.refs の雛形を置きます。
                   </li>
                   <li>
                     Build 結果は {dirRel ? `${dirRel}/` : ''}
-                    {name}.xlsm です。
+                    {name}.xlsm です。作ったあと、画面の「次の操作」に従って Build してください。
                   </li>
                 </ul>
               ) : (
@@ -782,11 +788,34 @@ export function App() {
           if (!tool) return;
         }
         for (const l of await unwrap(api.initProject(root!))) log('info', `  ${l}`);
+        const label = tool ? '取り込み' : 'ブック作成';
         if (tool) {
           setBusy('Excel ツールを取り込み中（画面に出ない Excel を使います）');
           log('info', `取り込み開始: ${tool}`);
         }
-        const r = await unwrap(tool ? api.importTool(root!, dirRel, tool) : api.createBook(root!, dirRel));
+        const res = await (tool ? api.importTool(root!, dirRel, tool) : api.createBook(root!, dirRel));
+        if (!res.ok) {
+          // 失敗の理由と対処を、出力パネルだけでなくその場で示す
+          log('error', `${label}: ${res.error}`);
+          await ask({
+            title: tool ? '取り込めませんでした' : 'ブックを作成できませんでした',
+            icon: 'error',
+            body: (
+              <>
+                <p className="whitespace-pre-wrap">{res.error}</p>
+                <p className="mt-2 text-[12px] text-muted">
+                  {tool
+                    ? '元のファイルは変更していません。原因を直してから、もう一度 ＋ →「既存の Excel ツールから作成…」を選んでください。'
+                    : 'ブックは作成していません。原因を直してから、もう一度 ＋ を押してください。'}
+                </p>
+              </>
+            ),
+            buttons: [{ label: '閉じる', value: true, variant: 'primary' }],
+            cancelValue: true,
+          });
+          return;
+        }
+        const r = res.value;
         log(
           'success',
           `ブックを作成しました: ${r.book}（${r.sheets.length} シート${tool ? '：' + r.sheets.join(', ') : ''}）`,
@@ -797,11 +826,27 @@ export function App() {
             'info',
             '  取り込んだ内容を確認してから Build してください（最初の Build では、既存の .xlsm を上書きする確認が出ます）',
           );
-        if (r.skipped.length > 0) setPanelOpen(true);
+        // 何をシートにし、何を取り込めなかったかを、ブック画面にそのまま出す
+        setLastResult(r.book, {
+          label,
+          time: now(),
+          title: tool
+            ? `${tool.split(/[\\/]/).pop()} から取り込みました（${r.sheets.length} シート）`
+            : `ブックを作成しました（${r.sheets.length} シート）`,
+          result: {
+            status: 'ok',
+            errors: [],
+            warnings: r.skipped,
+            confirmations: [],
+            changes: r.sheets.map((s) => ({ action: 'create-sheet', target: s })),
+            conflicts: [],
+            unbuilt: [],
+          },
+        });
         setSelected(r.book);
         setView('books');
       }),
-    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot],
+    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot, setLastResult],
   );
 
   /** ブックの無いディレクトリすべてにブックを作る（ソースコードモード） */
@@ -1119,6 +1164,7 @@ export function App() {
                 onReload={() => withBusy('再読み込み中', async () => {})}
                 onCreateBook={onCreateBook}
                 onCreateAll={project.mode === 'vba' && project.modeSet ? undefined : () => void onCreateAll()}
+                vba={project.mode === 'vba' && project.modeSet}
               />
             ) : (
               <RulesList project={project} selected={ruleRel} drafts={drafts} onSelect={setRuleRel} />
@@ -1211,6 +1257,9 @@ export function App() {
                   void unwrap(api.openOutput(project.root, book.rel, reveal)).catch((e: Error) =>
                     log('error', e.message),
                   )
+                }
+                onOpenBackups={() =>
+                  void unwrap(api.openBackups(project.root, book.rel)).catch((e: Error) => log('error', e.message))
                 }
               />
             ) : (

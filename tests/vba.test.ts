@@ -4,7 +4,17 @@ import path from 'node:path';
 import ExcelJS from 'exceljs';
 import iconv from 'iconv-lite';
 import { describe, expect, it } from 'vitest';
-import { bookStatus, createBook, initProject, saveConfig, sync, type VbaJob, type VbaRunner } from '../src/core';
+import {
+  bookRef,
+  bookStatus,
+  createBook,
+  initProject,
+  saveConfig,
+  sync,
+  undoLast,
+  type VbaJob,
+  type VbaRunner,
+} from '../src/core';
 import { DEFAULT_CONFIG } from '../src/core/config';
 import { loadState } from '../src/core/state';
 import { modulesFromBook, splitSheets, stripExportHeader, vbaBuild, VBOM_HELP } from '../src/core/vba';
@@ -325,6 +335,53 @@ describe('VBA モードの Build / Sync', () => {
     expect(await readFile(f.file(`.xlcode/backup/_root/${backups[0]}`), 'utf8')).toBe('データを直接入力した');
     expect((await bookStatus(f.root, f.file(book))).vba?.changed).toBe(false);
   });
+
+  it('「元に戻す」でビルド結果（.xlsm）も Build の前に戻る。初めての Build なら削除する', async () => {
+    const f = await vbaProject();
+    const { book, out } = names(f);
+    // 初めての Build: 変更が無くても .xlsm を作るので、元に戻せる（戻すと .xlsm は消える）
+    await build(f, fakeExcel().runner);
+    let st = await bookStatus(f.root, f.file(book));
+    expect(st.undo).toMatchObject({ label: 'Build', output: out });
+    expect(st.vba).toMatchObject({ exists: true, backups: [] });
+    expect(st.vba?.builtAt).not.toBeNull();
+    let u = await undoLast(f.root, bookRef(f.root, f.file(book)));
+    expect(u.removed).toEqual([out]);
+    expect(await readdir(f.root)).not.toContain(out);
+    expect((await bookStatus(f.root, f.file(book))).vba?.exists).toBe(false);
+
+    // 2 回目以降: 直前の .xlsm に戻る
+    await build(f, fakeExcel().runner);
+    const first = await readFile(f.file(out));
+    await f.editBook(book, (b) => b.writeLines('Module1.bas', ['Option Explicit', 'Sub Second()', 'End Sub']));
+    await build(f, fakeExcel().runner);
+    expect(Buffer.compare(await readFile(f.file(out)), first)).not.toBe(0);
+    st = await bookStatus(f.root, f.file(book));
+    expect(st.undo?.files).toEqual(['Module1.bas']);
+    expect(st.undo?.output).toBe(out);
+    u = await undoLast(f.root, bookRef(f.root, f.file(book)));
+    expect(u.restored).toEqual([out, 'Module1.bas']);
+    expect(Buffer.compare(await readFile(f.file(out)), first)).toBe(0);
+    expect(await sjis(f, 'Module1.bas')).toBe('Option Explicit\r\n');
+    st = await bookStatus(f.root, f.file(book));
+    expect(st.vba).toMatchObject({ exists: true, changed: false });
+    expect(st.files.find((x) => x.name === 'Module1.bas')?.status).toBe('excel-changed');
+  });
+
+  it('バックアップの一覧は新しい順で、5 世代まで', async () => {
+    const f = await vbaProject();
+    const { book, out } = names(f);
+    await build(f, fakeExcel().runner);
+    for (let i = 0; i < 6; i++) {
+      await writeFile(f.file(out), `直接編集 ${i}`);
+      await new Promise((res) => setTimeout(res, 1100));
+      await build(f, fakeExcel().runner);
+    }
+    const st = await bookStatus(f.root, f.file(book));
+    expect(st.vba?.backups.length).toBe(5);
+    expect(st.vba!.backups[0] > st.vba!.backups[1]).toBe(true);
+    expect(await readFile(f.file(st.vba!.backups[0]), 'utf8')).toBe('直接編集 5');
+  }, 20_000);
 
   it('前からある .xlsm を初めて上書きするときも確認する', async () => {
     const f = await vbaProject();

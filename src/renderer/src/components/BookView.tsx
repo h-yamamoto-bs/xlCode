@@ -72,6 +72,7 @@ export const ACTION_LABEL: Record<string, string> = {
   'write-file': 'ファイル出力',
   'delete-file': 'ファイル削除',
   'write-sheet': 'シート更新',
+  'create-sheet': 'シート作成',
   'delete-sheet': 'シート削除',
   'reformat-sheet': 'シート整形',
   'conflict-sheet': '衝突シート作成',
@@ -86,6 +87,8 @@ export interface LastResult {
   label: string;
   time: string;
   result: OpResult;
+  /** 見出しを差し替える（ブック作成・取り込みなど、Build / Sync 以外の結果） */
+  title?: string;
 }
 
 function summarizeChanges(r: OpResult): string {
@@ -97,13 +100,19 @@ function summarizeChanges(r: OpResult): string {
 function ResultBanner({ last, onClose }: { last: LastResult; onClose: () => void }) {
   const r = last.result;
   const kind = r.status === 'ok' ? 'success' : r.status === 'error' ? 'error' : 'warning';
-  const title = {
-    ok: r.changes.length === 0 ? `${last.label}: 変更はありませんでした` : `${last.label} 完了`,
-    error: `${last.label} を中断しました（何も書き換えていません）`,
-    confirm: `${last.label} をキャンセルしました`,
-    conflict: `${last.label}: 衝突シートを作成しました`,
-    'needs-decision': `${last.label} を中止しました`,
-  }[r.status];
+  // 途中で失敗した場合（VBA の Build ②など）は、どこまで書き換えたかを隠さない
+  const written = r.changes.filter((c) => c.action !== 'commit').length > 0;
+  const title =
+    last.title ??
+    {
+      ok: r.changes.length === 0 ? `${last.label}: 変更はありませんでした` : `${last.label} 完了`,
+      error: written
+        ? `${last.label} を途中で中断しました（下の「変更したもの」までは書き換えています）`
+        : `${last.label} を中断しました（何も書き換えていません）`,
+      confirm: `${last.label} をキャンセルしました`,
+      conflict: `${last.label}: 衝突シートを作成しました`,
+      'needs-decision': `${last.label} を中止しました`,
+    }[r.status];
   const summary = summarizeChanges(r);
   return (
     <Banner kind={kind} onClose={onClose} role="status">
@@ -123,7 +132,7 @@ function ResultBanner({ last, onClose }: { last: LastResult; onClose: () => void
         </div>
       ))}
       {r.changes.length > 0 && (
-        <details className="mt-1 text-[12px]">
+        <details className="mt-1 text-[12px]" open={r.status === 'error'}>
           <summary className="cursor-pointer text-muted">変更したもの（{r.changes.length}）</summary>
           <ul className="mt-1 rounded-[3px] border border-line bg-editor px-3 py-1.5 font-mono">
             {r.changes.map((c, i) => (
@@ -162,11 +171,14 @@ export function BookView({
   onRefreshTree,
   projectMode = 'source',
   onOpenOutput,
+  onOpenBackups,
 }: {
   root: string;
   projectMode?: ProjectMode;
   /** VBA モード: ビルド結果を開く（reveal ならフォルダで表示） */
   onOpenOutput?: (reveal: boolean) => void;
+  /** VBA モード: 上書き前のバックアップのフォルダを開く */
+  onOpenBackups?: () => void;
   book: BookSummary;
   treeVersion: string;
   busy: boolean;
@@ -190,7 +202,7 @@ export function BookView({
   const clean = files.filter((f) => f.status === 'clean');
   const fileName = book.rel.split('/').pop()!;
   const disabled = busy || book.open;
-  const next: Next = nextAction(book, treeVersion, busy);
+  const next: Next = nextAction(book, { treeVersion, busy, projectMode, platform: api.platform });
 
   // 押せない理由をツールチップに出す（迷わないため）
   const blocked = busy
@@ -281,7 +293,7 @@ export function BookView({
           aria-label="Build"
           title={reason(
             vba
-              ? 'Build: Excel 側の変更をソースコードへ出力し、VBA を書き込んだ .xlsm を作る'
+              ? `Build: Excel 側の変更をソースコードへ出力し、VBA を書き込んだ ${outName ?? '.xlsm'} を作り直す（Windows のデスクトップ版 Excel を使う）`
               : 'Build: Excel 側の変更をソースコードへ出力する（エディタ側だけの変更はシートへ取り込む）',
           )}
         >
@@ -299,7 +311,11 @@ export function BookView({
           onClick={onSync}
           disabled={disabled}
           aria-label="Sync"
-          title={reason('Sync: エディタ側の変更をシートへ反映する')}
+          title={reason(
+            vba
+              ? 'Sync: エディタ側の変更をシートへ反映する（ビルド結果には次の Build で入る）'
+              : 'Sync: エディタ側の変更をシートへ反映する',
+          )}
         >
           <Icon.Sync size={15} />
           Sync
@@ -315,7 +331,10 @@ export function BookView({
             onClick={onUndo}
             disabled={disabled}
             aria-label={`${book.undo.label} を元に戻す`}
-            title={reason(`${fmtTime(book.undo.at)} の ${book.undo.label} を元に戻す`)}
+            title={reason(
+              `${fmtTime(book.undo.at)} の ${book.undo.label} を元に戻す` +
+                (book.undo.output ? `（${book.undo.output} も Build 前に戻す）` : ''),
+            )}
           >
             <Icon.Undo size={15} />
             元に戻す
@@ -325,7 +344,11 @@ export function BookView({
           <Button
             onClick={() => onOpenOutput?.(false)}
             disabled={busy || !out?.exists}
-            title="ビルド結果の .xlsm をデスクトップ版 Excel で開く"
+            title={
+              out?.exists
+                ? `ビルド結果 ${outName} をデスクトップ版 Excel で開く（ひな形なので、使うときはコピーする）`
+                : 'まだ Build していないため、ビルド結果がありません'
+            }
           >
             <Icon.Excel size={15} />
             ビルド結果を開く
@@ -402,20 +425,35 @@ export function BookView({
             <Banner
               kind={out.changed ? 'warning' : 'info'}
               action={
-                out.exists && (
-                  <Button onClick={() => onOpenOutput?.(true)} disabled={busy} className="shrink-0">
-                    <Icon.Reveal size={14} />
-                    フォルダ
-                  </Button>
+                (out.exists || out.backups.length > 0) && (
+                  <span className="flex shrink-0 gap-1.5">
+                    {out.exists && (
+                      <Button onClick={() => onOpenOutput?.(true)} disabled={busy} title="ビルド結果をフォルダで表示">
+                        <Icon.Reveal size={14} />
+                        フォルダ
+                      </Button>
+                    )}
+                    {out.backups.length > 0 && (
+                      <Button
+                        onClick={onOpenBackups}
+                        disabled={busy}
+                        title={`上書き前のビルド結果（${out.backups.length} 世代、新しい順）:\n${out.backups.join('\n')}`}
+                      >
+                        <Icon.Undo size={14} />
+                        バックアップ（{out.backups.length}）
+                      </Button>
+                    )}
+                  </span>
                 )
               }
             >
               ビルド結果: <span className="font-mono break-all">{out.output}</span>
+              {out.builtAt && <span className="ml-2 text-[11px] text-faint">最終 Build {fmtTime(out.builtAt)}</span>}
               <div className="text-[12px] text-muted">
                 {!out.exists
                   ? 'まだ Build していません。Build すると、シートをソースコードに書き出してから、画面のシートと VBA を入れた .xlsm を作ります。'
                   : out.changed
-                    ? `${outName} が前回の Build の後に変更されています。次の Build で作り直すと、直接入力したデータや VBE で直したコードは失われます（元のファイルは .xlcode/backup に残します）。`
+                    ? `${outName} が前回の Build の後に変更されています。次の Build で作り直すと、直接入力したデータや VBE で直したコードは失われます（上書きの前に .xlcode/backup へ控えを取り、5 世代まで残します）。`
                     : 'ビルド結果は Build のたびに作り直す「ひな形」です（Git 管理はしません）。実際に使うときはコピーして使ってください。'}
               </div>
             </Banner>
@@ -473,7 +511,12 @@ export function BookView({
 
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Stat label="Excel側で編集中" value={excel.length} color="text-modified" hint="Build で反映" />
-            <Stat label="エディタ側で変更" value={source.length} color="text-info" hint="Sync で取り込み" />
+            <Stat
+              label="エディタ側で変更"
+              value={source.length}
+              color="text-info"
+              hint={vba ? 'Sync でシートへ、Build で .xlsm へ' : 'Sync で取り込み'}
+            />
             <Stat label="両側で変更" value={conflict.length} color="text-conflict" hint="衝突シートで統合" />
             <Stat label="同期済み" value={clean.length} color="text-fg" hint={`全 ${files.length} ファイル`} />
           </div>

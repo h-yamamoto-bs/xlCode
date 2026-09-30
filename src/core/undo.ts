@@ -16,6 +16,8 @@ export interface UndoInfo {
   at: string;
   /** 元に戻すソースファイル（Build が書き出した・削除したもの） */
   files: string[];
+  /** VBA モード: 元に戻すビルド結果（.xlsm）のファイル名 */
+  output?: string;
 }
 
 interface Manifest extends UndoInfo {
@@ -25,6 +27,13 @@ interface Manifest extends UndoInfo {
   existed: Record<string, boolean>;
   /** 操作前の state.json のこのブックの項目（無ければ null） */
   state: BookState | null;
+  /** VBA モード: ビルド結果（ルートからの相対パス）と、操作前に存在したか */
+  outputFile?: { rel: string; existed: boolean };
+}
+
+export interface SnapshotOptions {
+  /** VBA モード: Build が作り直すビルド結果（.xlsm）の絶対パス。これも控えて元に戻せるようにする */
+  output?: string;
 }
 
 export interface UndoResult {
@@ -61,6 +70,7 @@ export async function takeSnapshot(
   label: UndoInfo['label'],
   stateBefore: BookState | null,
   fileNames: readonly string[],
+  opts: SnapshotOptions = {},
 ): Promise<void> {
   const dir = undoDir(root, ref.rel);
   await rm(dir, { recursive: true, force: true });
@@ -72,6 +82,12 @@ export async function takeSnapshot(
     existed[name] = await exists(abs);
     if (existed[name]) await copyFile(abs, path.join(dir, 'files', name));
   }
+  let outputFile: Manifest['outputFile'];
+  if (opts.output) {
+    const outExists = await exists(opts.output);
+    if (outExists) await copyFile(opts.output, path.join(dir, 'output.bin'));
+    outputFile = { rel: path.relative(root, opts.output).split(path.sep).join('/'), existed: outExists };
+  }
   const manifest: Manifest = {
     version: 1,
     book: ref.rel,
@@ -80,6 +96,7 @@ export async function takeSnapshot(
     files: [...fileNames],
     existed,
     state: stateBefore,
+    ...(outputFile ? { output: path.basename(outputFile.rel), outputFile } : {}),
   };
   await atomicWrite(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 }
@@ -87,7 +104,8 @@ export async function takeSnapshot(
 /** 元に戻せる操作があれば、その情報を返す */
 export async function undoInfo(root: string, bookRel: string): Promise<UndoInfo | null> {
   const m = await readManifest(undoDir(root, bookRel));
-  return m && m.book === bookRel ? { label: m.label, at: m.at, files: m.files } : null;
+  if (!m || m.book !== bookRel) return null;
+  return { label: m.label, at: m.at, files: m.files, ...(m.output ? { output: m.output } : {}) };
 }
 
 /**
@@ -100,9 +118,28 @@ export async function undoLast(root: string, ref: BookRef): Promise<UndoResult> 
   if (!m || m.book !== ref.rel) throw new Error(`元に戻せる操作がありません: ${ref.rel}`);
   const open = await checkBookOpen(ref.abs);
   if (open.open) throw new Error(`${ref.rel} が開かれています。Excel を閉じてから元に戻してください（${open.reason}）`);
+  const outAbs = m.outputFile ? path.join(root, ...m.outputFile.rel.split('/')) : null;
+  if (outAbs) {
+    const outOpen = await checkBookOpen(outAbs);
+    if (outOpen.open) {
+      throw new Error(
+        `ビルド結果 ${path.basename(outAbs)} が開かれています。Excel を閉じてから元に戻してください（${outOpen.reason}）`,
+      );
+    }
+  }
 
   const restored: string[] = [];
   const removed: string[] = [];
+  if (outAbs && m.outputFile) {
+    const name = path.basename(outAbs);
+    if (m.outputFile.existed) {
+      await atomicWrite(outAbs, await readFile(path.join(dir, 'output.bin')));
+      restored.push(name);
+    } else {
+      await rm(outAbs, { force: true });
+      removed.push(name);
+    }
+  }
   for (const name of m.files) {
     const abs = path.join(ref.dirAbs, name);
     if (m.existed[name]) {

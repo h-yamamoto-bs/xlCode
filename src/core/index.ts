@@ -16,6 +16,7 @@ export { relocateBooks, type RelocateResult } from './relocate';
 export { bookPathFor, bookRootOf, resolveBook } from './project';
 export type { ProjectMode } from './config';
 export {
+  vbaBackupDir,
   vbaBuild,
   vbaOutputPath,
   VBA_KIND_LABEL,

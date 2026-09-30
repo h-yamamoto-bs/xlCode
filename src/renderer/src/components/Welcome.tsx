@@ -77,6 +77,10 @@ export function Welcome({
                 どちらも実行前に Git へ自動コミットし、直前の 1
                 回は「元に戻す」で戻せます。画面の「次の操作」に従えば迷いません。
               </div>
+              <div className="mt-1.5 border-t border-line pt-1.5 text-faint">
+                <b className="text-muted">VBA ツール</b>の場合: 既存の .xlsm から取り込み → Copilot で編集 → Build
+                でソースコードと .xlsm を作り直す
+              </div>
             </div>
           </div>
         </div>

@@ -17,6 +17,8 @@ export interface BuildOptions {
   confirmed?: boolean;
   /** 呼び出し側（VBA モード）の確認事項。Build の確認と一緒に、何も書き込む前に出す */
   extraConfirmations?: Confirmation[];
+  /** 呼び出し側（VBA モード）が Build の後に作り直すビルド結果。元に戻す用の控えに含め、変更が無くても控える */
+  snapshotOutput?: string;
 }
 
 export interface SyncOptions {
@@ -243,11 +245,19 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
   if (r.confirmations.length > 0 && !opts.confirmed) return { ...r, status: 'confirm' };
   if (useGit && !(await commitBefore(ctx, ref, 'Build', r))) return r;
   if (!(await assertClosed(ref, r, 'ソースは変更していません'))) return r;
-  if (scan.entries.some((e) => e.status !== 'clean' && e.status !== 'gone') || scan.deletes.length > 0) {
-    await takeSnapshot(root, ref, 'Build', before, [
-      ...toBuild.map((e) => e.name),
-      ...scan.deletes.map((d) => d.fileName),
-    ]);
+  if (
+    opts.snapshotOutput ||
+    scan.entries.some((e) => e.status !== 'clean' && e.status !== 'gone') ||
+    scan.deletes.length > 0
+  ) {
+    await takeSnapshot(
+      root,
+      ref,
+      'Build',
+      before,
+      [...toBuild.map((e) => e.name), ...scan.deletes.map((d) => d.fileName)],
+      { output: opts.snapshotOutput },
+    );
   }
 
   let bookChanged = false;

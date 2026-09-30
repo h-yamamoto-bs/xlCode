@@ -22,6 +22,7 @@ export type ChangeAction =
   | 'write-file'
   | 'delete-file'
   | 'write-sheet'
+  | 'create-sheet'
   | 'delete-sheet'
   | 'reformat-sheet'
   | 'conflict-sheet'

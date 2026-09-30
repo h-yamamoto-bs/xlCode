@@ -31,6 +31,7 @@ const api: XlcodeApi = {
   writeRuleFile: call('writeRuleFile') as XlcodeApi['writeRuleFile'],
   setProjectMode: call('setProjectMode') as XlcodeApi['setProjectMode'],
   openOutput: call('openOutput') as XlcodeApi['openOutput'],
+  openBackups: call('openBackups') as XlcodeApi['openBackups'],
   pickToolFile: call('pickToolFile') as XlcodeApi['pickToolFile'],
   importTool: call('importTool') as XlcodeApi['importTool'],
 };

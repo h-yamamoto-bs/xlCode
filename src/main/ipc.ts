@@ -25,6 +25,7 @@ import {
   saveConfig,
   sync,
   undoLast,
+  vbaBackupDir,
   vbaBuild,
   vbaOutputPath,
   createBookFromTool,
@@ -178,10 +179,8 @@ export function registerIpc(): void {
     }),
   );
   ipcMain.handle('sync', (_e, root: string, book: string, opts) =>
-    wrap(async () => {
-      if ((await loadConfig(root)).mode === 'vba') throw new Error('VBA モードには Sync はありません');
-      return sync(root, await bookAbsOf(root, book), opts);
-    }),
+    // VBA モードでも Sync はソースコードモードと同じ（エディタで直したソースをシートへ。ビルド結果は次の Build で作り直す）
+    wrap(async () => sync(root, await bookAbsOf(root, book), opts)),
   );
   ipcMain.handle('pickToolFile', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)!;
@@ -219,6 +218,15 @@ export function registerIpc(): void {
         const err = await shell.openPath(out);
         if (err) throw new Error(err);
       }
+    }),
+  );
+  ipcMain.handle('openBackups', (_e, root: string, book: string) =>
+    wrap(async () => {
+      const bookRoot = await bookRootFor(root);
+      const dir = vbaBackupDir(root, bookRef(root, resolveBook(bookRoot, book), bookRoot));
+      if (!(await exists(dir))) throw new Error(`バックアップはまだありません: ${dir}`);
+      const err = await shell.openPath(dir);
+      if (err) throw new Error(err);
     }),
   );
   ipcMain.handle('bookDiff', (_e, root: string, book: string) =>

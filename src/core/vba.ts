@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { atomicWrite } from './atomic';
@@ -263,6 +263,26 @@ export interface VbaBookInfo {
   exists: boolean;
   /** 前回の Build の後に、ビルド結果が直接変更された */
   changed: boolean;
+  /** ビルド結果の更新日時（ISO 8601。無ければ null） */
+  builtAt: string | null;
+  /** 上書き前のバックアップ（.xlcode/backup/ の中。新しい順、ルートからの相対パス） */
+  backups: string[];
+}
+
+/** 上書き前のバックアップを置くフォルダ */
+export function vbaBackupDir(root: string, ref: BookRef): string {
+  return path.join(root, XLCODE_DIR, 'backup', ref.dirRel === '' ? '_root' : ref.dirRel.split('/').join('__'));
+}
+
+async function listBackups(root: string, ref: BookRef, output: string): Promise<string[]> {
+  const dir = vbaBackupDir(root, ref);
+  const base = path.basename(output, '.xlsm');
+  const names = await readdir(dir).catch(() => [] as string[]);
+  return names
+    .filter((n) => n.startsWith(`${base}-`) && n.endsWith('.xlsm'))
+    .sort()
+    .reverse()
+    .map((n) => path.relative(root, path.join(dir, n)).split(path.sep).join('/'));
 }
 
 /** ビルド結果の状態 */
@@ -270,14 +290,27 @@ export async function vbaOutputInfo(ctx: ProjectContext, ref: BookRef): Promise<
   const output = vbaOutputPath(ref);
   const hash = await outputHash(output);
   const prev = bookState(ctx.state, ref.rel).outputHash;
-  return { output, exists: hash !== null, changed: hash !== null && prev !== undefined && hash !== prev };
+  const builtAt =
+    hash === null
+      ? null
+      : await stat(output).then(
+          (s) => s.mtime.toISOString(),
+          () => null,
+        );
+  return {
+    output,
+    exists: hash !== null,
+    changed: hash !== null && prev !== undefined && hash !== prev,
+    builtAt,
+    backups: await listBackups(ctx.root, ref, output),
+  };
 }
 
 const BACKUP_KEEP = 5;
 
 /** 上書き前のビルド結果を .xlcode/backup/ に残す（新しいものから 5 世代） */
 async function backupOutput(root: string, ref: BookRef, output: string): Promise<string> {
-  const dir = path.join(root, XLCODE_DIR, 'backup', ref.dirRel === '' ? '_root' : ref.dirRel.split('/').join('__'));
+  const dir = vbaBackupDir(root, ref);
   await mkdir(dir, { recursive: true });
   const base = path.basename(output, '.xlsm');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
@@ -338,7 +371,12 @@ export async function vbaBuild(
   }
 
   // ① シート → ソースコード
-  const r = await build(root, bookAbs, { confirmed: opts.confirmed, extraConfirmations: extra });
+  // ビルド結果も「元に戻す」の控えに含める（②で作り直すため）
+  const r = await build(root, bookAbs, {
+    confirmed: opts.confirmed,
+    extraConfirmations: extra,
+    snapshotOutput: output,
+  });
   if (r.status !== 'ok') return r;
 
   // ② ソースコード → .xlsm

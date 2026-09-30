@@ -26,9 +26,12 @@ export function Sidebar({
   onReload,
   onCreateBook,
   onCreateAll,
+  vba = false,
 }: {
   /** ブックの無いディレクトリすべてにブックを作る（ソースコードモード） */
   onCreateAll?: () => void;
+  /** VBA モード（ブックは既存の Excel ツールから取り込むか、空で作る） */
+  vba?: boolean;
   project: ProjectInfo;
   selected: string | null;
   busy: boolean;
@@ -66,7 +69,8 @@ export function Sidebar({
       >
         {project.books.length === 0 && (
           <div className="px-5 py-2 text-[12px] leading-relaxed text-muted">
-            ブックがありません。下の「ブック未作成のディレクトリ」から作成してください。
+            ブックがありません。下の「ブック未作成のディレクトリ」の ＋ から作成してください。
+            {vba && '既存の Excel ツール（.xlsm など）から取り込むこともできます。'}
           </div>
         )}
         <ul role="tree" aria-label="ブック">
@@ -175,7 +179,7 @@ export function Sidebar({
               <Icon.Folder size={14} className="shrink-0 text-muted" />
               <span className="truncate">{d || `${project.name}（ルート）`}</span>
               <IconButton
-                title={`${d || 'ルート'} にブックを作成`}
+                title={`${d || 'ルート'} にブックを作成${vba ? '（既存の Excel ツールから取り込み / 空のブック）' : ''}`}
                 className="ml-auto opacity-0 group-hover:opacity-100"
                 onClick={() => onCreateBook(d)}
                 disabled={busy}
