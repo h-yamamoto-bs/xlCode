@@ -36,7 +36,16 @@ import { atomicWrite } from '../core/atomic';
 import { excelPathError, isBookFile, isIgnored, toPosixRel } from '../core/fsutil';
 import { exists } from '../core/project';
 import type { BookSummary, OpenVia, ProjectInfo, Result } from '../shared/api';
-import { isPersonalUrl, joinUrl, openOnlineViaOneDrive, readSyncRoots, toWebUrl } from './onedrive';
+import {
+  findRoot,
+  isPersonalUrl,
+  joinUrl,
+  openOnlineViaOneDrive,
+  personalCid,
+  readSyncRoots,
+  toWebUrl,
+} from './onedrive';
+import { resolvePersonalUrl } from './onedriveItem';
 import { runImportJob, runVbaJob } from './excelCom';
 import { bookStamp, querySyncStatus } from './syncStatus';
 
@@ -145,7 +154,8 @@ function openTerminal(dir: string): void {
  */
 async function openInWeb(root: string, abs: string): Promise<string | null> {
   const { webUrlBase } = await loadConfig(root);
-  if (webUrlBase) {
+  // 個人用 OneDrive の d.docs.live.net はブラウザでは開けないので、入力されていても使わない
+  if (webUrlBase && !isPersonalUrl(webUrlBase)) {
     const url = joinUrl(webUrlBase, toPosixRel(await bookRootFor(root), abs).split('/'));
     await shell.openExternal(url);
     return url;
@@ -156,21 +166,40 @@ async function openInWeb(root: string, abs: string): Promise<string | null> {
     await shell.openExternal(url);
     return url;
   }
-  // 個人用 OneDrive は URL にファイルの ID が要るため、OneDrive 自身に開かせる
-  if (await openOnlineViaOneDrive(abs)) return null;
-  if (url) {
-    await shell.openExternal(url);
-    return url;
-  }
   const found = roots.map((r) => `  ${r.mountPoint} → ${r.urlNamespace}`).join('\n');
+  if (!url) {
+    throw new Error(
+      [
+        'Web 版の URL を特定できません。ブックが OneDrive / SharePoint の同期フォルダ内にあるか確認するか、設定の「Web 版の URL」にブックの置き場所の URL を入力してください。',
+        `ブック: ${abs}`,
+        found
+          ? `見つかった同期フォルダ:\n${found}`
+          : '同期フォルダが見つかりませんでした（OneDrive にサインインしているか確認してください）',
+      ].join('\n'),
+    );
+  }
+  // 個人用 OneDrive: d.docs.live.net の URL はブラウザでは 404 になるので開かない。
+  // OneDrive の同期データベースからファイルの ID を求めるか、OneDrive 自身に開かせる
+  const syncRoot = findRoot(abs, roots)!;
+  const cid = personalCid(url);
+  const personal = cid ? await resolvePersonalUrl(abs, syncRoot.mountPoint, cid) : null;
+  if (personal) {
+    await shell.openExternal(personal);
+    return personal;
+  }
+  const verb = await openOnlineViaOneDrive(abs);
+  if (verb.ok) return null;
   throw new Error(
     [
-      'Web 版の URL を特定できません。ブックが OneDrive / SharePoint の同期フォルダ内にあるか確認するか、設定の「Web 版の URL」にブックの置き場所の URL を入力してください。',
+      '個人用 OneDrive のブックを Web 版で開く URL を求められませんでした。',
+      'OneDrive がまだこのブックを同期していない可能性があります。エクスプローラーでブックに緑のチェックが付いてから、もう一度試してください。',
+      'それでも開けない場合は、エクスプローラーでブックを右クリック →「オンラインで表示」で開けます。',
       `ブック: ${abs}`,
-      found
-        ? `見つかった同期フォルダ:\n${found}`
-        : '同期フォルダが見つかりませんでした（OneDrive にサインインしているか確認してください）',
-    ].join('\n'),
+      `同期フォルダ: ${syncRoot.mountPoint} → ${syncRoot.urlNamespace}`,
+      verb.verbs.length > 0 ? `右クリックメニューの項目: ${verb.verbs.join(' / ')}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
   );
 }
 

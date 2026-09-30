@@ -37,13 +37,22 @@ export function parseSyncRoots(regOutput: string): SyncRoot[] {
   return roots;
 }
 
-/** ローカルパスに対応する Web URL を作る（最も深い同期フォルダを採用） */
-export function toWebUrl(fileAbs: string, roots: SyncRoot[], sep = path.sep): string | null {
+/** ローカルパスを含む同期フォルダ（最も深いもの） */
+export function findRoot(fileAbs: string, roots: SyncRoot[], sep = path.sep): SyncRoot | null {
   const norm = (p: string) => p.replace(/[\\/]+$/, '').toLowerCase();
   const file = norm(fileAbs);
-  const hit = roots
-    .filter((r) => file.startsWith(norm(r.mountPoint) + sep.toLowerCase()) || file.startsWith(norm(r.mountPoint) + '/'))
-    .sort((a, b) => b.mountPoint.length - a.mountPoint.length)[0];
+  return (
+    roots
+      .filter(
+        (r) => file.startsWith(norm(r.mountPoint) + sep.toLowerCase()) || file.startsWith(norm(r.mountPoint) + '/'),
+      )
+      .sort((a, b) => b.mountPoint.length - a.mountPoint.length)[0] ?? null
+  );
+}
+
+/** ローカルパスに対応する Web URL を作る（最も深い同期フォルダを採用） */
+export function toWebUrl(fileAbs: string, roots: SyncRoot[], sep = path.sep): string | null {
+  const hit = findRoot(fileAbs, roots, sep);
   if (!hit) return null;
   const rel = fileAbs.slice(hit.mountPoint.replace(/[\\/]+$/, '').length + 1).split(/[\\/]/);
   return joinUrl(hit.urlNamespace, rel);
@@ -88,9 +97,14 @@ export function rootsFromRaw(raws: RawRoot[]): SyncRoot[] {
   return roots;
 }
 
-/** 個人用 OneDrive（d.docs.live.net）の URL か。ブラウザでは Excel for the web として開けない */
+/** 個人用 OneDrive（d.docs.live.net）の URL か。ブラウザでは開けない（404 になる） */
 export function isPersonalUrl(url: string): boolean {
   return /^https:\/\/d\.docs\.live\.net\//i.test(url);
+}
+
+/** 個人用 OneDrive の URL から cid を取り出す */
+export function personalCid(url: string): string | null {
+  return /^https:\/\/d\.docs\.live\.net\/([^/?#]+)/i.exec(url)?.[1] ?? null;
 }
 
 const REGISTRY_SCRIPT = `
@@ -135,10 +149,10 @@ export async function readSyncRoots(): Promise<SyncRoot[]> {
 
 /**
  * エクスプローラーの右クリックメニューにある OneDrive の「オンラインで表示」を実行する。
- * 個人用 OneDrive など URL を組み立てられない場合に使う。実行できたら true
+ * 実行できたら ok: true。できなければ、見つかったメニュー項目を返す（原因を調べる用）
  */
-export async function openOnlineViaOneDrive(fileAbs: string): Promise<boolean> {
-  if (process.platform !== 'win32') return false;
+export async function openOnlineViaOneDrive(fileAbs: string): Promise<{ ok: boolean; verbs: string[] }> {
+  if (process.platform !== 'win32') return { ok: false, verbs: [] };
   const b64 = Buffer.from(fileAbs, 'utf8').toString('base64');
   try {
     const out = await runPowerShell(`
@@ -146,11 +160,13 @@ $ErrorActionPreference = 'Stop'
 $p = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}'))
 $sh = New-Object -ComObject Shell.Application
 $item = $sh.Namespace([IO.Path]::GetDirectoryName($p)).ParseName([IO.Path]::GetFileName($p))
-$v = @($item.Verbs()) | Where-Object { ($_.Name -replace '&', '') -match '^\\s*(オンラインで表示|View online)' } | Select-Object -First 1
-if ($v) { $v.DoIt(); 'ok' } else { 'none' }
+$verbs = @($item.Verbs())
+$v = $verbs | Where-Object { ($_.Name -replace '&', '') -match '(オンラインで表示|オンラインで開く|View online|Open online)' } | Select-Object -First 1
+if ($v) { $v.DoIt(); 'ok' } else { ($verbs | ForEach-Object { ($_.Name -replace '&', '') } | Where-Object { $_ }) -join "\n" }
 `);
-    return out.trim() === 'ok';
-  } catch {
-    return false;
+    const lines = out.trim().split(/\r?\n/).filter(Boolean);
+    return lines[0] === 'ok' ? { ok: true, verbs: [] } : { ok: false, verbs: lines };
+  } catch (e) {
+    return { ok: false, verbs: [`（メニューを調べられませんでした: ${e instanceof Error ? e.message : String(e)}）`] };
   }
 }
