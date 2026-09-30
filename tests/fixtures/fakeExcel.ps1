@@ -2,15 +2,16 @@
 # 保存（SaveAs）すると、VBA プロジェクトの中身を JSON で書き出す。
 
 class FakeCodeModule {
-  [System.Collections.Generic.List[string]]$Lines = [System.Collections.Generic.List[string]]::new()
+  [System.Collections.Generic.List[string]]$Buf = [System.Collections.Generic.List[string]]::new()
   [int]$CountOfLines = 0
   [void] DeleteLines([int]$start, [int]$count) {
-    $this.Lines.RemoveRange($start - 1, $count); $this.CountOfLines = $this.Lines.Count
+    $this.Buf.RemoveRange($start - 1, $count); $this.CountOfLines = $this.Buf.Count
   }
   [void] AddFromString([string]$code) {
-    foreach ($l in ($code -split "`r`n")) { $this.Lines.Add($l) }
-    $this.CountOfLines = $this.Lines.Count
+    foreach ($l in ($code -split "`r`n")) { $this.Buf.Add($l) }
+    $this.CountOfLines = $this.Buf.Count
   }
+  [string] Lines([int]$start, [int]$count) { return ($this.Buf.GetRange($start - 1, $count) -join "`r`n") }
 }
 
 class FakeProperties {
@@ -21,11 +22,14 @@ class FakeProperties {
   }
 }
 
-class FakeControls {
+class FakeControls : System.Collections.IEnumerable {
   [System.Collections.ArrayList]$List = [System.Collections.ArrayList]::new()
+  [System.Collections.IEnumerator] GetEnumerator() { return $this.List.GetEnumerator() }
   [hashtable] Add([string]$progId, [string]$name, [bool]$visible) {
     if (-not $progId.StartsWith('Forms.')) { throw "ProgID が不正です: $progId" }
-    $c = @{ ProgId = $progId; Name = $name; Font = @{} }
+    # 既定値（取り込みで「既定値と同じなら書かない」を確かめるため）
+    $c = @{ ProgId = $progId; Name = $name; Font = @{ Name = 'MS UI Gothic'; Size = 9; Bold = $false }
+      ForeColor = -2147483630; BackColor = -2147483633; Left = 0; Top = 0; Width = 72; Height = 24 }
     if ($progId -eq 'Forms.Frame.1') { $c.Controls = [FakeControls]::new() }
     if ($progId -eq 'Forms.MultiPage.1') {
       $c.Pages = [FakePages]::new()
@@ -36,8 +40,9 @@ class FakeControls {
   }
 }
 
-class FakePages {
+class FakePages : System.Collections.IEnumerable {
   [System.Collections.ArrayList]$List = [System.Collections.ArrayList]::new()
+  [System.Collections.IEnumerator] GetEnumerator() { return $this.List.GetEnumerator() }
   [int]$Count = 0
   [hashtable] Item([int]$i) { return $this.List[$i] }
   [hashtable] Add([string]$name) {
@@ -62,6 +67,7 @@ class FakeComponents : System.Collections.IEnumerable {
   [int]$Count = 0
   [System.Collections.IEnumerator] GetEnumerator() { return $this.List.GetEnumerator() }
   [void] Push([FakeComponent]$c) { [void]$this.List.Add($c); $this.Count = $this.List.Count }
+  [void] Remove([FakeComponent]$c) { $this.List.Remove($c); $this.Count = $this.List.Count }
   [FakeComponent] Add([int]$type) {
     $c = [FakeComponent]::new()
     $c.Type = $type
@@ -78,8 +84,20 @@ class FakeComponents : System.Collections.IEnumerable {
   }
 }
 
+class FakeReferences : System.Collections.IEnumerable {
+  [System.Collections.ArrayList]$List = [System.Collections.ArrayList]::new()
+  [System.Collections.IEnumerator] GetEnumerator() { return $this.List.GetEnumerator() }
+  [hashtable] AddFromGuid([string]$guid, [int]$major, [int]$minor) {
+    if ($guid -like '{00000000*') { throw 'ライブラリが登録されていません' }
+    $r = @{ GUID = $guid; Major = $major; Minor = $minor; BuiltIn = $false; Type = 0; Name = 'Lib'; Description = 'Lib' }
+    [void]$this.List.Add($r)
+    return $r
+  }
+}
+
 class FakeProject {
   [FakeComponents]$VBComponents = [FakeComponents]::new()
+  [FakeReferences]$References = [FakeReferences]::new()
 }
 
 class FakeSheet {
@@ -103,18 +121,21 @@ class FakeWorkbook {
   [string]$SavedAs
   [int]$SavedFormat
   [bool]$Closed
+  [string]$Path
 
   [void] SaveAs([string]$path, [int]$format) {
     $this.SavedAs = $path
     $this.SavedFormat = $format
+    if ($format -eq 51) { Copy-Item -LiteralPath $this.Path -Destination $path; return }
     $dump = [ordered]@{ format = $format; autoSave = $this.AutoSaveOn; components = @() }
     foreach ($c in $this.Project.VBComponents.List) {
       $props = [ordered]@{}
       foreach ($k in $c.Properties.Map.Keys) { $props[$k] = $c.Properties.Map[$k].Value }
       $dump.components += [ordered]@{
-        name = $c.Name; type = $c.Type; code = @($c.CodeModule.Lines); props = $props; designer = $c.Designer
+        name = $c.Name; type = $c.Type; code = @($c.CodeModule.Buf); props = $props; designer = $c.Designer
       }
     }
+    $dump.references = @($this.Project.References.List)
     [IO.File]::WriteAllText($path, ($dump | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
   }
   [void] Close([bool]$save) { $this.Closed = $true }
@@ -126,6 +147,9 @@ class FakeWorkbooks {
     if (-not (Test-Path -LiteralPath $path)) { throw "ファイルがありません: $path" }
     if ($env:FAKE_EXCEL_SLEEP) { Start-Sleep -Seconds ([int]$env:FAKE_EXCEL_SLEEP) }
     $wb = [FakeWorkbook]::new()
+    $wb.Path = $path
+    $refs = $wb.Project.References.List
+    [void]$refs.Add(@{ GUID = '{000204EF-0000-0000-C000-000000000046}'; Major = 4; Minor = 2; BuiltIn = $true; Type = 0; Name = 'VBA'; Description = 'VBA' })
     $comps = $wb.Project.VBComponents
     $doc = [FakeComponent]::new(); $doc.Name = 'ThisWorkbook'; $doc.Type = 100
     $doc.Properties.Map['Name'] = @{ Value = 'input.xlsx' }
@@ -140,6 +164,7 @@ class FakeWorkbooks {
       $comps.Push($d)
       $i++
     }
+    if ($env:FAKE_EXCEL_PROJECT) { Import-FakeProject $wb ([IO.File]::ReadAllText($env:FAKE_EXCEL_PROJECT) | ConvertFrom-Json) }
     # 「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」が無いときは VBProject で例外になる
     $wb | Add-Member -MemberType ScriptProperty -Name VBProject -Value {
       if ($env:FAKE_EXCEL_NO_VBOM) { throw 'プログラミングによる Visual Basic プロジェクトへのアクセスは信頼性に欠けます' }
@@ -166,6 +191,43 @@ class FakeExcel {
     }
     if ($env:FAKE_EXCEL_LOG) { [IO.File]::WriteAllText($env:FAKE_EXCEL_LOG, ($state | ConvertTo-Json)) }
   }
+}
+
+# 取り込みのテスト用: 既存のツールの VBA プロジェクトを再現する
+function Import-FakeProject($wb, $spec) {
+  $comps = $wb.Project.VBComponents
+  foreach ($m in @($spec.components)) {
+    $c = $comps.List | Where-Object { $_.Name -eq $m.name } | Select-Object -First 1
+    if (-not $c) { $c = [FakeComponent]::new(); $c.Name = $m.name; $c.Type = $m.type; $comps.Push($c) }
+    foreach ($l in @($m.code)) { $c.CodeModule.Buf.Add([string]$l) }
+    $c.CodeModule.CountOfLines = $c.CodeModule.Buf.Count
+    if ($m.form) {
+      $c.Designer = @{ Controls = [FakeControls]::new(); Font = @{}; Name = $m.name }
+      if ($m.form.picture) { $c.Designer.Picture = @{ Handle = 5 } }
+      foreach ($p in $m.form.props.PSObject.Properties) { $c.Properties.Map[$p.Name] = @{ Value = $p.Value } }
+      $byName = @{}
+      foreach ($k in @($m.form.controls)) {
+        $h = @{ __type = $k.type; Name = $k.name; Parent = @{ Name = $k.parent }; Font = @{} }
+        foreach ($p in $k.props.PSObject.Properties) {
+          if ($p.Name -like 'Font.*') { $h.Font[$p.Name.Substring(5)] = $p.Value } else { $h[$p.Name] = $p.Value }
+        }
+        if ($k.picture) { $h.Picture = @{ Handle = 7 } }
+        if ($k.type -eq 'MultiPage') { $h.Pages = [FakePages]::new() }
+        $byName[$k.name] = $h
+        if ($k.type -eq 'Page') { [void]$byName[$k.parent].Pages.List.Add($h); $byName[$k.parent].Pages.Count++ }
+        else { [void]$c.Designer.Controls.List.Add($h) }
+      }
+    }
+  }
+  foreach ($r in @($spec.references)) {
+    if ($null -eq $r) { continue }
+    [void]$wb.Project.References.List.Add(@{ GUID = $r.guid; Major = $r.major; Minor = $r.minor; BuiltIn = $false; Type = $r.type; Name = $r.name; Description = $r.description })
+  }
+}
+
+function Get-TypeName($o) {
+  if ($o -is [hashtable] -and $o.ContainsKey('__type')) { return $o.__type }
+  return 'Unknown'
 }
 
 function New-FakeExcel {

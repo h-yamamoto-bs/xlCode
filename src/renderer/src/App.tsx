@@ -651,41 +651,131 @@ export function App() {
           log('info', `プロジェクトの種類: ${chosen === 'vba' ? 'VBA' : 'ソースコード'}`);
           pmode = chosen;
         }
-        const { value } = await ask({
+        const bookPath = `${project?.bookRoot ? `${project.bookRoot}/` : ''}${dirRel ? `${dirRel}/` : ''}${name}.xlcode.xlsx`;
+        const { value } = await ask<'empty' | 'tool' | null>({
           title: 'ブックを作成しますか？',
           icon: 'info',
           body: (
             <>
               <p>
-                <span className="font-mono break-all">
-                  {project?.bookRoot ? `${project.bookRoot}/` : ''}
-                  {dirRel ? `${dirRel}/` : ''}
-                  {name}.xlcode.xlsx
-                </span>{' '}
-                を作成し、
-                {pmode === 'vba'
-                  ? `Agents.md などのルールのシートを入れます（${dirRel ? `${dirRel}/` : ''}vba/ に控えがあれば、そのコードもシートにします）。Build 結果は ${dirRel ? `${dirRel}/` : ''}${name}.xlsm です。`
-                  : `${dirRel || 'ルート'} のファイルをシートとして取り込みます。`}
+                <span className="font-mono break-all">{bookPath}</span> を作成します。
               </p>
+              {pmode === 'vba' ? (
+                <ul className="mt-2 list-disc pl-5">
+                  <li>
+                    <span className="text-fg">既存の Excel ツールから作成</span>
+                    ：.xlsm などを選ぶと、シート（画面・データ）はそのまま、VBA
+                    のモジュール・フォーム・参照設定をシートにして取り込みます。元のファイルは変更しません（Windows
+                    のデスクトップ版 Excel が必要）。
+                  </li>
+                  <li>
+                    <span className="text-fg">空のブックを作成</span>：{dirRel ? `${dirRel}/` : ''}vba/
+                    に控えがあれば、そのコードをシートにします。
+                  </li>
+                  <li>
+                    Build 結果は {dirRel ? `${dirRel}/` : ''}
+                    {name}.xlsm です。
+                  </li>
+                </ul>
+              ) : (
+                <p className="mt-2">{dirRel || 'ルート'} のファイルをシートとして取り込みます。</p>
+              )}
               <p className="mt-2 text-muted">
                 あわせて .gitignore に xlCode 用の除外（*.xlcode.xlsx, ~$*,
                 .xlcode/）を追記し、Agents.md・LocalAgents.md が無ければ雛形を作成します。
               </p>
             </>
           ),
+          buttons:
+            pmode === 'vba'
+              ? [
+                  { label: '既存の Excel ツールから作成…', value: 'tool', variant: 'primary' },
+                  { label: '空のブックを作成', value: 'empty' },
+                  { label: 'キャンセル', value: null },
+                ]
+              : [
+                  { label: '作成', value: 'empty', variant: 'primary' },
+                  { label: 'キャンセル', value: null },
+                ],
+          cancelValue: null,
+        });
+        if (!value) return;
+        let tool: string | null = null;
+        if (value === 'tool') {
+          tool = await api.pickToolFile();
+          if (!tool) return;
+        }
+        for (const l of await unwrap(api.initProject(root!))) log('info', `  ${l}`);
+        if (tool) {
+          setBusy('Excel ツールを取り込み中（画面に出ない Excel を使います）');
+          log('info', `取り込み開始: ${tool}`);
+        }
+        const r = await unwrap(tool ? api.importTool(root!, dirRel, tool) : api.createBook(root!, dirRel));
+        log(
+          'success',
+          `ブックを作成しました: ${r.book}（${r.sheets.length} シート${tool ? '：' + r.sheets.join(', ') : ''}）`,
+        );
+        for (const s of r.skipped) log('warning', `  ${tool ? '注意' : 'スキップ'}: ${s}`);
+        if (tool)
+          log(
+            'info',
+            '  取り込んだ内容を確認してから Build してください（最初の Build では、既存の .xlsm を上書きする確認が出ます）',
+          );
+        if (r.skipped.length > 0) setPanelOpen(true);
+        setSelected(r.book);
+        setView('books');
+      }),
+    [withBusy, ask, root, project, log, chooseMode],
+  );
+
+  /** ブックの無いディレクトリすべてにブックを作る（ソースコードモード） */
+  const onCreateAll = useCallback(
+    () =>
+      withBusy('ブック作成中', async () => {
+        const dirs = project?.dirsWithoutBook ?? [];
+        if (!project || dirs.length === 0) return;
+        if (!project.modeSet) {
+          const chosen = await chooseMode();
+          if (!chosen) return;
+          await unwrap(api.setProjectMode(root!, chosen));
+          if (chosen === 'vba') {
+            log('info', 'プロジェクトの種類: VBA（ブックは 1 つずつ作成してください）');
+            return;
+          }
+        }
+        const { value } = await ask({
+          title: `${dirs.length} 個のディレクトリにブックを作成しますか？`,
+          icon: 'info',
+          body: (
+            <>
+              <p>それぞれのディレクトリのファイルを、シートとして取り込みます。</p>
+              <ul className="mt-2 max-h-[40vh] overflow-auto rounded-[3px] border border-line bg-editor px-3 py-1.5 font-mono text-[12px]">
+                {dirs.map((d) => (
+                  <li key={d}>{d || `${project.name}（ルート）`}</li>
+                ))}
+              </ul>
+            </>
+          ),
           buttons: [
-            { label: '作成', value: true, variant: 'primary' },
+            { label: 'すべて作成', value: true, variant: 'primary' },
             { label: 'キャンセル', value: false },
           ],
           cancelValue: false,
         });
         if (!value) return;
         for (const l of await unwrap(api.initProject(root!))) log('info', `  ${l}`);
-        const r = await unwrap(api.createBook(root!, dirRel));
-        log('success', `ブックを作成しました: ${r.book}（${r.sheets.length} シート）`);
-        for (const s of r.skipped) log('warning', `  スキップ: ${s}`);
-        setSelected(r.book);
-        setView('books');
+        let made = 0;
+        for (const d of dirs) {
+          const r = await api.createBook(root!, d);
+          if (!r.ok) {
+            log('error', `  ${d || 'ルート'}: ${r.error}`);
+            continue;
+          }
+          made++;
+          log('info', `  作成: ${r.value.book}（${r.value.sheets.length} シート）`);
+          for (const s of r.value.skipped) log('warning', `    スキップ: ${s}`);
+        }
+        log(made === dirs.length ? 'success' : 'warning', `ブックを ${made} / ${dirs.length} 冊作成しました`);
       }),
     [withBusy, ask, root, project, log, chooseMode],
   );
@@ -950,6 +1040,7 @@ export function App() {
                 onRefreshTree={() => onRefreshTree()}
                 onReload={() => withBusy('再読み込み中', async () => {})}
                 onCreateBook={onCreateBook}
+                onCreateAll={project.mode === 'vba' && project.modeSet ? undefined : () => void onCreateAll()}
               />
             ) : (
               <RulesList project={project} selected={ruleRel} drafts={drafts} onSelect={setRuleRel} />

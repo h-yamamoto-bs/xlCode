@@ -104,6 +104,10 @@ export interface XlcodeApi {
   writeRuleFile(root: string, rel: string, text: string): Promise<Result<void>>;
   /** プロジェクトの種類を決める（一度決めたら変えられない） */
   setProjectMode(root: string, mode: ProjectMode): Promise<Result<void>>;
+  /** 取り込む Excel ツールを選ぶ */
+  pickToolFile(): Promise<string | null>;
+  /** 既存の Excel ツールから編集用ブックを作る（VBA モード） */
+  importTool(root: string, dirRel: string, file: string): Promise<Result<CreateBookResult>>;
   /** VBA モードのビルド結果（.xlsm）を開く。reveal ならフォルダで表示 */
   openOutput(root: string, bookRel: string, reveal: boolean): Promise<Result<void>>;
 }

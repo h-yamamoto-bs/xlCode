@@ -1,12 +1,13 @@
 import { access, appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { AGENTS_SHEET, LOCAL_AGENTS_SHEET, XLCODE_DIR } from './constants';
+import { AGENTS_SHEET, LOCAL_AGENTS_SHEET, REFS_SHEET, XLCODE_DIR } from './constants';
 import { excelPathError, listSourceFiles, readTextFile } from './fsutil';
 import { textToLines } from './normalize';
 import { bookPathFor, bookRef, bookRootOf, booksInDir, openProject } from './project';
 import { bookState, saveState } from './state';
 import { loadConfig } from './config';
 import { readCopies } from './vba';
+import { renderRefs } from './vbaRefs';
 import { applyTreeToBook, computeTree, readLocalAgents, readRootAgents } from './tree';
 import { isCodeName, validateFileName } from './sheetName';
 import { Book } from './workbook';
@@ -34,6 +35,9 @@ const VBA_AGENTS_TEMPLATE = `# Agents.md
   - 標準モジュール: Module1.bas / クラスモジュール: Class1.cls / ユーザーフォーム: UserForm1.frm
   - シートのイベント: 「シート名.cls」、ブックのイベント: ThisWorkbook.cls
 - 各モジュールの先頭に Option Explicit を書く。Attribute 行は書かない
+- 外部のライブラリ（Dictionary・正規表現・ADO など）は CreateObject で使う書き方をおすすめする
+  （例: \`Dim d As Object: Set d = CreateObject("Scripting.Dictionary")\`）
+  - 参照設定が必要な書き方（\`Dim d As New Scripting.Dictionary\`）をした場合は、#refs シートへの追加が必要だと利用者に伝える
 - 拡張子のないシートは画面（UI）とデータ。指示が無い限り中身を変えない
 - 「#」で始まるシート、Agents.md・LocalAgents.md シートは編集しない
 - ユーザーフォームは、先頭に配置を書き、その後にコードを書く
@@ -139,7 +143,8 @@ export async function createBook(root: string, dirAbs: string): Promise<CreateBo
       book.writeLines(c.sheet, c.lines);
       sheets.push(c.sheet);
     }
-    if (sheets.length === 0) book.writeLines('Module1.bas', ['Option Explicit', '']);
+    if (!sheets.includes(REFS_SHEET)) book.writeLines(REFS_SHEET, renderRefs([]));
+    if (!sheets.some((n) => n !== REFS_SHEET)) book.writeLines('Module1.bas', ['Option Explicit', '']);
     await book.save(bookAbs);
     // 控えから作ったシートは、次の Build で「未ビルド」として扱う（ビルド結果が控えと同じとは限らないため）
     bs.files = {};

@@ -3,17 +3,18 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { atomicWrite } from './atomic';
-import { AGENTS_SHEET, BOOK_SUFFIX, LOCAL_AGENTS_SHEET, XLCODE_DIR } from './constants';
+import { AGENTS_SHEET, BOOK_SUFFIX, LOCAL_AGENTS_SHEET, REFS_SHEET, XLCODE_DIR } from './constants';
 import { decodeFile, EncodeError, encodeFile } from './encoding';
 import { excelPathError } from './fsutil';
 import { autoCommit, isGitRepo, uncommittedChanges } from './git';
 import { checkBookOpen } from './lock';
-import { normalizeText, sha256, textToLines } from './normalize';
+import { linesToText, normalizeText, sha256, textToLines } from './normalize';
 import { bookRef, bookRootOf, exists, openProject, type BookRef, type ProjectContext } from './project';
 import { newResult, type OpResult } from './result';
 import { classifySheet } from './sheetName';
 import { bookState, saveState, type FileState } from './state';
 import { isVbaIdentifier, parseFormSheet, type FormDef } from './vbaForm';
+import { parseRefs, renderRefs, type VbaReference } from './vbaRefs';
 import { Book } from './workbook';
 import { patchXlsx, type PatchOp } from './xlsxPatch';
 
@@ -63,6 +64,8 @@ export interface VbaCollect {
   keep: string[];
   /** ビルド結果から除くシート */
   remove: string[];
+  /** #refs シートの参照設定 */
+  references: VbaReference[];
   errors: string[];
   warnings: string[];
 }
@@ -89,11 +92,16 @@ export function collectModules(
   book: Book,
   opts: { trimTrailingWhitespace: boolean; extraCodeNames?: string[] },
 ): VbaCollect {
-  const out: VbaCollect = { modules: [], keep: [], remove: [], errors: [], warnings: [] };
+  const out: VbaCollect = { modules: [], keep: [], remove: [], references: [], errors: [], warnings: [] };
   const names = book.sheetNames();
   for (const name of names) {
     if (classifySheet(name, opts.extraCodeNames).kind === 'other') out.keep.push(name);
     else out.remove.push(name);
+  }
+  if (book.hasSheet(REFS_SHEET)) {
+    const refs = parseRefs(REFS_SHEET, book.readSheet(REFS_SHEET).lines);
+    out.references = refs.refs;
+    out.errors.push(...refs.errors);
   }
   const seen = new Map<string, string>();
   for (const sheet of out.remove) {
@@ -188,8 +196,11 @@ export function copyFileName(m: VbaModule): string {
   return m.kind === 'form' ? `${m.sheet}.txt` : m.sheet;
 }
 
+/** 参照設定の控え */
+export const REFS_COPY = 'references.txt';
+
 function isCopyFile(name: string): boolean {
-  return /\.(bas|cls|frm\.txt)$/i.test(name);
+  return /\.(bas|cls|frm\.txt)$/i.test(name) || name === REFS_COPY;
 }
 
 /** 控えの内容。VBE の「ファイルのインポート」で取り込めるよう、標準・クラスモジュールには見出しを付ける */
@@ -220,6 +231,7 @@ export function copyText(m: VbaModule): string {
 /** 控え（vba/ の中）からシートの内容に戻す（ブックを作り直すとき用） */
 export function sheetFromCopy(fileName: string, text: string): { sheet: string; lines: string[] } | null {
   const lines = textToLines(normalizeText(text, fileName, { trimTrailingWhitespace: false }));
+  if (fileName === REFS_COPY) return { sheet: REFS_SHEET, lines };
   if (/\.frm\.txt$/i.test(fileName)) return { sheet: fileName.slice(0, -4), lines };
   if (/\.(bas|cls)$/i.test(fileName)) return { sheet: fileName, lines: stripExportHeader(lines).lines };
   return null;
@@ -243,6 +255,8 @@ export interface VbaJob {
   /** 保存先の .xlsm */
   output: string;
   modules: VbaJobModule[];
+  /** 追加する参照設定 */
+  references: VbaReference[];
 }
 
 export interface VbaRunResult {
@@ -369,6 +383,12 @@ export async function vbaBuild(
       r.errors.push(`${e.message}（VBA は Shift_JIS のため、この文字は使えません）`);
     }
   }
+  if (c.references.length > 0) {
+    copies.set(
+      REFS_COPY,
+      encodeFile(linesToText(renderRefs(c.references)), { encoding: 'sjis', eol: 'crlf' }, REFS_COPY),
+    );
+  }
   if (r.errors.length > 0) return { ...r, status: 'error' };
 
   const bs = bookState(ctx.state, ref.rel);
@@ -435,6 +455,7 @@ export async function vbaBuild(
         code: m.code.join('\r\n'),
         form: m.form,
       })),
+      references: c.references,
     });
     if (!run.ok) {
       r.errors.push(`Excel での書き込みに失敗しました: ${run.error ?? '原因不明'}`);

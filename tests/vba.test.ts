@@ -460,14 +460,19 @@ describe.skipIf(!pwsh)('Excel を操作する PowerShell スクリプト（偽�
     `. '${prelude}'\n$ErrorActionPreference = 'Stop'`,
   ).replace('New-Object -ComObject Excel.Application', 'New-FakeExcel');
 
-  async function runJob(modules: VbaJob['modules'], env: Record<string, string> = {}, timeout?: number) {
+  async function runJob(
+    modules: VbaJob['modules'],
+    env: Record<string, string> = {},
+    timeout?: number,
+    references: VbaJob['references'] = [],
+  ) {
     const f = await fixture({ 'input.xlsx': 'x' });
     const log = f.file('excel.json');
     const saved = { ...process.env };
     Object.assign(process.env, { FAKE_EXCEL_SHEETS: '入力画面|マスタ', FAKE_EXCEL_LOG: log }, env);
     try {
       const r = await runVbaJob(
-        { input: f.file('input.xlsx'), output: f.file('out.xlsm'), modules },
+        { input: f.file('input.xlsx'), output: f.file('out.xlsm'), modules, references },
         { exe: 'pwsh', script, timeout },
       );
       const out = await readFile(f.file('out.xlsm'), 'utf8').catch(() => null);
@@ -517,13 +522,13 @@ describe.skipIf(!pwsh)('Excel を操作する PowerShell スクリプト（偽�
     expect(uf.props).toMatchObject({ Caption: '顧客登録', Width: 300, Height: 200.5 });
     expect(uf.designer.BackColor).toBe(0x8000000f - 0x100000000);
     expect(uf.code[0]).toBe('Private Sub btnOK_Click()');
-    const [lbl, fra, mpg] = uf.designer.Controls.List;
+    const [lbl, fra, mpg] = uf.designer.Controls;
     expect(lbl).toMatchObject({ ProgId: 'Forms.Label.1', Name: 'lblName', Caption: '氏名 "様"', Left: 12 });
-    expect(fra.Controls.List[0]).toMatchObject({ Name: 'optA', Caption: '個人', Value: true });
+    expect(fra.Controls[0]).toMatchObject({ Name: 'optA', Caption: '個人', Value: true });
     // MultiPage は最初からある 2 ページを使い回し、余りは消す
-    expect(mpg.Pages.List).toHaveLength(1);
-    expect(mpg.Pages.List[0]).toMatchObject({ Name: 'pgA', Caption: '基本' });
-    expect(mpg.Pages.List[0].Controls.List[0]).toMatchObject({ Name: 'txtA', Font: { Size: 11 } });
+    expect(mpg.Pages).toHaveLength(1);
+    expect(mpg.Pages[0]).toMatchObject({ Name: 'pgA', Caption: '基本' });
+    expect(mpg.Pages[0].Controls[0]).toMatchObject({ Name: 'txtA', Font: { Size: 11 } });
   }, 60_000);
 
   it('VBA プロジェクトへのアクセスが信頼されていなければ vbom で失敗し、Excel は終了する', async () => {
@@ -558,7 +563,7 @@ describe('PowerShell が無いとき', () => {
     const { runVbaJob } = await import('../src/main/excelCom');
     const f = await fixture();
     const r = await runVbaJob(
-      { input: f.file('a.xlsx'), output: f.file('a.xlsm'), modules: [] },
+      { input: f.file('a.xlsx'), output: f.file('a.xlsm'), modules: [], references: [] },
       { exe: 'no-such-powershell-xlcode' },
     );
     expect(r).toMatchObject({ ok: false, errorKind: 'other' });

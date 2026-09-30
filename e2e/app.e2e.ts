@@ -210,7 +210,7 @@ describe('ブックの置き場所', () => {
     await win.getByText('プロジェクトの種類を選んでください').waitFor();
     await win.getByRole('button', { name: 'VBA', exact: true }).click();
     await win.getByText(/Build 結果は .*\.xlsm です/).waitFor();
-    await win.getByRole('button', { name: '作成', exact: true }).click();
+    await win.getByRole('button', { name: '空のブックを作成', exact: true }).click();
     await waitLog(win, /ブックを作成しました/);
     const path = await import('node:path');
     const name = path.basename(f.root);
@@ -225,5 +225,34 @@ describe('ブックの置き場所', () => {
     await waitLog(win, /Windows とデスクトップ版 Excel が必要です/);
     const { readdir } = await import('node:fs/promises');
     expect(await readdir(f.root)).not.toContain(`${name}.xlsm`);
+  });
+
+  it('VBA: 既存の Excel ツールから作成を選ぶと、ファイルを選んで取り込む（Windows 以外ではエラー）', async () => {
+    const { fixture } = await import('../tests/helpers');
+    const { saveConfig } = await import('../src/core');
+    const { DEFAULT_CONFIG } = await import('../src/core/config');
+    const f = await fixture({ 'tool.xlsm': 'x' }, { git: true });
+    await saveConfig(f.root, { ...DEFAULT_CONFIG, mode: 'vba' });
+    running = await launch(f.root);
+    const { app, win } = running;
+    await app.evaluate(({ dialog }, file) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [file] })) as typeof dialog.showOpenDialog;
+    }, f.file('tool.xlsm'));
+    await win.getByTitle('ルート にブックを作成').click();
+    await win.getByRole('button', { name: '既存の Excel ツールから作成…' }).click();
+    await waitLog(win, /Windows とデスクトップ版 Excel が必要です/);
+  });
+
+  it('ソースコード: すべてのディレクトリにまとめてブックを作成する', async () => {
+    const { fixture } = await import('../tests/helpers');
+    const f = await fixture({ 'a/x.ts': 'export const x = 1;\n', 'b/y.ts': 'export const y = 1;\n' }, { git: true });
+    running = await launch(f.root);
+    const { win } = running;
+    await win.getByTitle('すべてのディレクトリにブックを作成').click();
+    await win.getByRole('button', { name: 'ソースコード', exact: true }).click();
+    await win.getByText('3 個のディレクトリにブックを作成しますか？').waitFor();
+    await win.getByRole('button', { name: 'すべて作成' }).click();
+    await waitLog(win, 'ブックを 3 / 3 冊作成しました');
+    expect((await f.sheet('a/a.xlcode.xlsx', 'x.ts'))[0]).toBe('export const x = 1;');
   });
 });

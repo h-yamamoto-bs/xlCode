@@ -27,3 +27,15 @@ export {
   type VbaRunResult,
 } from './vba';
 export type { FormDef, FormControl, FormProp } from './vbaForm';
+export {
+  createBookFromTool,
+  TOOL_EXTENSIONS,
+  type ImportJob,
+  type ImportResult,
+  type ImportedModule,
+  type ImportedControl,
+  type ImportedProp,
+  type ImportedForm,
+  type VbaImporter,
+} from './vbaImport';
+export type { VbaReference } from './vbaRefs';
