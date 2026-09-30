@@ -143,6 +143,9 @@ tests/          Vitest
 
 Copilot を使うにはブックが OneDrive にある必要がある。一方、ソース・`.git`・`node_modules` を OneDrive に置くと同期が重くなり、`.git` が壊れやすい。
 そこで、ブックだけを OneDrive 内の専用フォルダに、ソースと同じフォルダ構成で置ける（設定 →「ブックの置き場所」）。
+最初のブックを作るときに置き場所を聞く（「OneDrive のフォルダを選ぶ…」か「プロジェクトの中に置く」）。あとから設定画面で変えると、既存のブックも移動する。
+
+編集用ブックのバックアップは OneDrive のバージョン履歴に任せる（xlCode では取らない）。
 
 ```
 C:\dev\shop\                       ← ソース（OneDrive の外）。正。Git・node_modules・.xlcode\state.json

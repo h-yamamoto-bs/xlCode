@@ -597,6 +597,45 @@ export function App() {
   );
 
   /** プロジェクトの種類を選ぶ（最初のブックを作るとき）。キャンセルなら null */
+  /**
+   * 最初のブックを作るときに、編集用ブックの置き場所を決める（Web 版・Copilot で開けるよう OneDrive を勧める）。
+   * 置き場所（未設定ならプロジェクトの中は null）を返す。キャンセルなら undefined
+   */
+  const chooseBookRoot = useCallback(async (): Promise<string | null | undefined> => {
+    if (!project || project.books.length > 0 || project.bookRoot) return project?.bookRoot ?? null;
+    const { value } = await ask<'onedrive' | 'inside' | null>({
+      title: '編集用ブックをどこに置きますか？',
+      icon: 'info',
+      body: (
+        <div className="flex flex-col gap-2">
+          <p>
+            Web 版の Excel と Copilot で開けるよう、
+            <span className="text-fg">OneDrive の中の、このプロジェクト専用のフォルダ</span>
+            をおすすめします（ソースコード・Git はこのままプロジェクトのフォルダに置きます）。
+          </p>
+          <p className="text-[12px] text-muted">
+            例: OneDrive\xlCode\{project.name}
+            （フォルダの選択画面で新しく作れます）。あとから設定画面で変えることもできます。
+          </p>
+        </div>
+      ),
+      buttons: [
+        { label: 'OneDrive のフォルダを選ぶ…', value: 'onedrive', variant: 'primary' },
+        { label: 'プロジェクトの中に置く', value: 'inside' },
+        { label: 'キャンセル', value: null },
+      ],
+      cancelValue: null,
+    });
+    if (!value) return undefined;
+    if (value === 'inside') return null;
+    const dir = await api.pickFolder(`編集用ブックの置き場所（OneDrive の中の「${project.name}」専用のフォルダ）`);
+    if (!dir) return undefined;
+    const r = await unwrap(api.relocateBooks(root!, dir));
+    log('info', `編集用ブックの置き場所: ${r.bookRoot}`);
+    setSettingsKey((k) => k + 1);
+    return r.bookRoot;
+  }, [ask, project, root, log]);
+
   const chooseMode = useCallback(async (): Promise<ProjectMode | null> => {
     const { value } = await ask<ProjectMode | null>({
       title: 'プロジェクトの種類を選んでください',
@@ -642,7 +681,9 @@ export function App() {
           log('info', `プロジェクトの種類: ${chosen === 'vba' ? 'VBA' : 'ソースコード'}`);
           pmode = chosen;
         }
-        const bookPath = `${project?.bookRoot ? `${project.bookRoot}/` : ''}${dirRel ? `${dirRel}/` : ''}${name}.xlcode.xlsx`;
+        const bookRoot = await chooseBookRoot();
+        if (bookRoot === undefined) return;
+        const bookPath = `${bookRoot ? `${bookRoot}/` : ''}${dirRel ? `${dirRel}/` : ''}${name}.xlcode.xlsx`;
         const { value } = await ask<'empty' | 'tool' | null>({
           title: 'ブックを作成しますか？',
           icon: 'info',
@@ -716,7 +757,7 @@ export function App() {
         setSelected(r.book);
         setView('books');
       }),
-    [withBusy, ask, root, project, log, chooseMode],
+    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot],
   );
 
   /** ブックの無いディレクトリすべてにブックを作る（ソースコードモード） */
@@ -734,6 +775,7 @@ export function App() {
             return;
           }
         }
+        if ((await chooseBookRoot()) === undefined) return;
         const { value } = await ask({
           title: `${dirs.length} 個のディレクトリにブックを作成しますか？`,
           icon: 'info',
@@ -768,7 +810,7 @@ export function App() {
         }
         log(made === dirs.length ? 'success' : 'warning', `ブックを ${made} / ${dirs.length} 冊作成しました`);
       }),
-    [withBusy, ask, root, project, log, chooseMode],
+    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot],
   );
 
   const openProject = useCallback(
