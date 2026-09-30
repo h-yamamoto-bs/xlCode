@@ -9,12 +9,13 @@ import { Icon } from './components/Icons';
 import { Panel, type LogEntry, type Problem } from './components/Panel';
 import { RulesEditor, RulesList, type Draft } from './components/RulesView';
 import { EXCEL_MODES, SettingsView } from './components/SettingsView';
+import { HelpView } from './components/HelpView';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
 import { Welcome } from './components/Welcome';
 import { SYNC_META } from './status';
 
-type View = 'books' | 'rules' | 'settings';
+type View = 'books' | 'rules' | 'settings' | 'help';
 
 /** xlCode からブックを開いた方法と、Web 版で開いた時点のブックの状態 */
 interface Opened {
@@ -31,6 +32,12 @@ export function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<View>('books');
+  // ヘルプで表示する見出し（nonce は同じ見出しへもう一度移動するため）
+  const [help, setHelp] = useState<{ anchor?: string; nonce: number }>({ nonce: 0 });
+  const openHelp = useCallback((anchor?: string) => {
+    setHelp((h) => ({ anchor, nonce: h.nonce + 1 }));
+    setView('help');
+  }, []);
   const [ruleRel, setRuleRel] = useState('Agents.md');
   // 保存していない Markdown の編集内容（ファイルや画面を切り替えても保持する）
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -927,6 +934,7 @@ export function App() {
       setRoot(p);
       setProject(null);
       setSelected(null);
+      setView('books');
       setLastResults({});
       webSkip.current.clear();
       const next = [p, ...recent.filter((x) => x !== p)].slice(0, 8);
@@ -1051,6 +1059,11 @@ export function App() {
   // キーボードショートカット
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F1') {
+        e.preventDefault();
+        openHelp();
+        return;
+      }
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
       const k = e.key.toLowerCase();
@@ -1070,7 +1083,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [pickProject, onBuild, onSync, selected]);
+  }, [pickProject, onBuild, onSync, selected, openHelp]);
 
   const problems = useMemo<Problem[]>(() => {
     if (!project) return [];
@@ -1113,7 +1126,8 @@ export function App() {
               key={it.id}
               title={it.title}
               aria-label={it.title}
-              disabled={!project}
+              // プロジェクトを開く前でも、ヘルプから起動画面へ戻れるようにする
+              disabled={!project && it.id !== 'books'}
               onClick={() => setView(it.id)}
               className={clsx(
                 'flex h-12 items-center justify-center border-l-2 disabled:opacity-40',
@@ -1126,6 +1140,17 @@ export function App() {
             </button>
           ))}
           <div className="flex-1" />
+          <button
+            title="ヘルプ (F1)"
+            aria-label="ヘルプ"
+            onClick={() => openHelp()}
+            className={clsx(
+              'flex h-12 items-center justify-center border-l-2',
+              view === 'help' ? 'border-fg-strong text-fg-strong' : 'border-transparent text-faint hover:text-fg',
+            )}
+          >
+            <Icon.Help size={22} />
+          </button>
           <button
             title="設定"
             aria-label="設定"
@@ -1151,7 +1176,7 @@ export function App() {
         </nav>
 
         {/* サイドバー */}
-        {project && view !== 'settings' && (
+        {project && view !== 'settings' && view !== 'help' && (
           <aside className="w-[280px] shrink-0 border-r border-line">
             {view === 'books' ? (
               <Sidebar
@@ -1174,7 +1199,7 @@ export function App() {
 
         {/* エディタ領域 */}
         <main className="flex min-w-0 flex-1 flex-col bg-editor">
-          {project && (
+          {(project || view === 'help') && (
             <div className="flex h-[35px] shrink-0 bg-side">
               <div className="flex items-center gap-1.5 border-t border-t-accent border-r border-r-line bg-editor px-3 text-[13px] text-fg-strong">
                 {view === 'books' ? (
@@ -1187,6 +1212,11 @@ export function App() {
                     <Icon.Rules size={14} className="text-info" />
                     {ruleRel}
                   </>
+                ) : view === 'help' ? (
+                  <>
+                    <Icon.Help size={14} className="text-info" />
+                    ヘルプ
+                  </>
                 ) : (
                   <>
                     <Icon.Gear size={14} />
@@ -1198,8 +1228,15 @@ export function App() {
             </div>
           )}
           <div className="min-h-0 flex-1">
-            {!root || (!project && !busy) ? (
-              <Welcome recent={recent} onOpen={pickProject} onOpenRecent={(p) => void openProject(p)} />
+            {view === 'help' ? (
+              <HelpView anchor={help.anchor} nonce={help.nonce} />
+            ) : !root || (!project && !busy) ? (
+              <Welcome
+                recent={recent}
+                onOpen={pickProject}
+                onOpenRecent={(p) => void openProject(p)}
+                onHelp={openHelp}
+              />
             ) : !project ? (
               <div className="flex h-full items-center justify-center gap-2 text-muted">
                 <Icon.Spinner /> 読み込み中...
@@ -1258,6 +1295,7 @@ export function App() {
                     log('error', e.message),
                   )
                 }
+                onHelp={openHelp}
                 onOpenBackups={() =>
                   void unwrap(api.openBackups(project.root, book.rel)).catch((e: Error) => log('error', e.message))
                 }
@@ -1270,7 +1308,7 @@ export function App() {
               </div>
             )}
           </div>
-          {project && panelOpen && (
+          {project && panelOpen && view !== 'help' && (
             <div className="h-[200px] shrink-0">
               <Panel
                 tab={panelTab}

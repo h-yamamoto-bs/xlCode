@@ -147,6 +147,24 @@ function ResultBanner({ last, onClose }: { last: LastResult; onClose: () => void
   );
 }
 
+/** ヘルプの該当箇所を開くリンク */
+function HelpLink({
+  anchor,
+  onHelp,
+  children = '詳しく',
+}: {
+  anchor: string;
+  onHelp?: (a: string) => void;
+  children?: ReactNode;
+}) {
+  if (!onHelp) return null;
+  return (
+    <button className="ml-2 text-[12px] text-link hover:underline" onClick={() => onHelp(anchor)}>
+      {children}
+    </button>
+  );
+}
+
 function fmtTime(iso: string): string {
   const d = new Date(iso);
   return isNaN(d.getTime()) ? iso : d.toLocaleString('ja-JP', { hour12: false });
@@ -172,8 +190,11 @@ export function BookView({
   projectMode = 'source',
   onOpenOutput,
   onOpenBackups,
+  onHelp,
 }: {
   root: string;
+  /** ヘルプの見出しを開く */
+  onHelp?: (anchor: string) => void;
   projectMode?: ProjectMode;
   /** VBA モード: ビルド結果を開く（reveal ならフォルダで表示） */
   onOpenOutput?: (reveal: boolean) => void;
@@ -401,6 +422,9 @@ export function BookView({
               <div className="text-[12px] text-muted">
                 Copilot に「A列とB列を統合して元のシートに書き、衝突シートを削除して」と指示してください。解決するまで
                 Build できません。
+                <HelpLink anchor="衝突の解決" onHelp={onHelp}>
+                  解決のしかた
+                </HelpLink>
               </div>
             </Banner>
           )}
@@ -455,6 +479,7 @@ export function BookView({
                   : out.changed
                     ? `${outName} が前回の Build の後に変更されています。次の Build で作り直すと、直接入力したデータや VBE で直したコードは失われます（上書きの前に .xlcode/backup へ控えを取り、5 世代まで残します）。`
                     : 'ビルド結果は Build のたびに作り直す「ひな形」です（Git 管理はしません）。実際に使うときはコピーして使ってください。'}
+                <HelpLink anchor="ビルド結果の使い方" onHelp={onHelp} />
               </div>
             </Banner>
           )}
@@ -506,6 +531,9 @@ export function BookView({
           >
             <span className="mr-2 text-[11px] tracking-wide text-muted uppercase">次の操作</span>
             <span className="text-fg-strong">{next.text}</span>
+            <HelpLink anchor={next.kind === 'resolve' ? '衝突の解決' : '基本の流れ'} onHelp={onHelp}>
+              使い方
+            </HelpLink>
             {next.detail && <div className="text-[12px] text-muted">{next.detail}</div>}
           </Banner>
 

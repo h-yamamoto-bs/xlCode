@@ -5,10 +5,13 @@ export function Welcome({
   recent,
   onOpen,
   onOpenRecent,
+  onHelp,
 }: {
   recent: string[];
   onOpen: () => void;
   onOpenRecent: (p: string) => void;
+  /** ヘルプを開く（anchor はヘルプの見出し） */
+  onHelp: (anchor?: string) => void;
 }) {
   return (
     <div className="flex h-full items-center justify-center overflow-auto bg-editor">
@@ -25,6 +28,12 @@ export function Welcome({
             <div className="mb-2 text-[15px] text-fg-strong">開始</div>
             <button className="flex items-center gap-2 py-1 text-link hover:underline" onClick={onOpen}>
               <Icon.Folder size={16} /> プロジェクトを開く...
+            </button>
+            <button
+              className="flex items-center gap-2 py-1 text-link hover:underline"
+              onClick={() => onHelp('はじめに')}
+            >
+              <Icon.Help size={16} /> 使い方を見る
             </button>
             <div className="mt-6 mb-2 text-[15px] text-fg-strong">最近使用したプロジェクト</div>
             {recent.length === 0 && <div className="text-muted">なし</div>}
@@ -82,6 +91,20 @@ export function Welcome({
                 でソースコードと .xlsm を作り直す
               </div>
             </div>
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+              <button className="text-link hover:underline" onClick={() => onHelp('基本の流れ')}>
+                基本の流れを詳しく
+              </button>
+              <button
+                className="text-link hover:underline"
+                onClick={() => onHelp('excel-でシートを編集するときの決まり')}
+              >
+                シートの書き方
+              </button>
+              <button className="text-link hover:underline" onClick={() => onHelp('困ったとき')}>
+                困ったとき
+              </button>
+            </div>
           </div>
         </div>
         <div className="mt-10 flex flex-wrap gap-x-5 gap-y-2 text-[12px] text-muted">
@@ -96,6 +119,9 @@ export function Welcome({
           </span>
           <span>
             <Kbd>Ctrl+J</Kbd> パネル
+          </span>
+          <span>
+            <Kbd>F1</Kbd> ヘルプ
           </span>
         </div>
       </div>

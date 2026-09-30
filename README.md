@@ -42,6 +42,8 @@ npm run package:win  :: インストーラーを作る（electron-builder は NS
 
 ## 使い方（GUI）
 
+利用者向けの詳しい使い方は [docs/guide.md](docs/guide.md)。アプリの「ヘルプ」（左端の ？、`F1`）でも同じ内容を読める。
+
 ```sh
 npm install
 npm run dev              # 開発起動
