@@ -1,4 +1,8 @@
 @import 'tailwindcss';
+/* ワードマーク（ロゴの横の xlCode）用。幾何学的で角の丸いロゴに合わせ、主張しすぎない中太 */
+@import '@fontsource/space-grotesk/500.css';
+/* コード・ファイル名・差分・出力用。0 と O、l と 1 が見分けやすい */
+@import '@fontsource-variable/jetbrains-mono';
 
 /* VS Code Dark Modern に準拠した配色 */
 @theme {
@@ -25,7 +29,8 @@
   --color-warn: #cca700;
   --color-excel: #3fb56b;
   --font-sans: 'Segoe UI', 'Yu Gothic UI', 'Meiryo UI', system-ui, -apple-system, sans-serif;
-  --font-mono: Consolas, 'Cascadia Code', 'BIZ UDGothic', ui-monospace, monospace;
+  --font-mono: 'JetBrains Mono Variable', Consolas, 'Cascadia Code', 'BIZ UDGothic', ui-monospace, monospace;
+  --font-brand: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
 }
 
 html,
@@ -39,6 +44,19 @@ body,
   font-family: var(--font-sans);
   font-size: 13px;
   user-select: none;
+}
+
+/* ロゴの横のワードマーク */
+.wordmark {
+  font-family: var(--font-brand);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* コードは書いたとおりの文字で見せる（=> などを合字にしない） */
+.font-mono,
+textarea {
+  font-variant-ligatures: none;
 }
 
 textarea,

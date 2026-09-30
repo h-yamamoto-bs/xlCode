@@ -43,6 +43,8 @@
     "vitest": "^5.0.1"
   },
   "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource/space-grotesk": "^5.3.0",
     "exceljs": "^4.4.0",
     "iconv-lite": "^0.7.3",
     "ignore": "^7.0.10",

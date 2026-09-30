@@ -1096,7 +1096,8 @@ export function App() {
       >
         <Icon.Logo size={22} />
         <div className="flex-1 text-center text-[12px] text-muted">
-          {project ? `${project.name} — xlCode` : 'xlCode'}
+          {project && `${project.name} — `}
+          <span className="wordmark text-[12.5px]">xlCode</span>
         </div>
       </div>
 
