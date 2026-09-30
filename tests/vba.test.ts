@@ -4,10 +4,10 @@ import path from 'node:path';
 import ExcelJS from 'exceljs';
 import iconv from 'iconv-lite';
 import { describe, expect, it } from 'vitest';
-import { bookStatus, createBook, initProject, refreshTree, saveConfig, type VbaJob, type VbaRunner } from '../src/core';
+import { bookStatus, createBook, initProject, saveConfig, sync, type VbaJob, type VbaRunner } from '../src/core';
 import { DEFAULT_CONFIG } from '../src/core/config';
 import { loadState } from '../src/core/state';
-import { collectModules, stripExportHeader, vbaBuild, VBOM_HELP } from '../src/core/vba';
+import { modulesFromBook, splitSheets, stripExportHeader, vbaBuild, VBOM_HELP } from '../src/core/vba';
 import { parseFormSheet } from '../src/core/vbaForm';
 import { Book } from '../src/core/workbook';
 import { fixture, type Fixture } from './helpers';
@@ -122,27 +122,27 @@ function bookWith(sheets: Record<string, string[]>): Book {
   return b;
 }
 
-describe('シートの仕分け', () => {
-  it('拡張子の無いシートは残し、.bas / .cls / .frm を VBA にする', () => {
-    const c = collectModules(
-      bookWith({
-        '#tree': ['# tree-version: x'],
-        'Agents.md': ['# Agents.md'],
-        入力画面: ['氏名'],
-        マスタ: ['A'],
-        'Module1.bas': ['Option Explicit'],
-        'Class1.cls': ['Option Explicit'],
-        '入力画面.cls': ['Private Sub Worksheet_Change(ByVal Target As Range)', 'End Sub'],
-        'ThisWorkbook.cls': ['Private Sub Workbook_Open()', 'End Sub'],
-        'UserForm1.frm': FORM,
-        'memo.txt': ['メモ'],
-      }),
-      DEFAULT_CONFIG,
-    );
+describe('VBA のモジュールの組み立て', () => {
+  it('画面のシートは残し、.bas / .cls / .frm と References.refs から VBA を組み立てる', () => {
+    const book = bookWith({
+      '#tree': ['# tree-version: x'],
+      'Agents.md': ['# Agents.md'],
+      入力画面: ['氏名'],
+      マスタ: ['A'],
+      'Module1.bas': ['Option Explicit'],
+      'Class1.cls': ['Option Explicit'],
+      '入力画面.cls': ['Private Sub Worksheet_Change(ByVal Target As Range)', 'End Sub'],
+      'ThisWorkbook.cls': ['Private Sub Workbook_Open()', 'End Sub'],
+      'UserForm1.frm': FORM,
+      'References.refs': ["' コメント", '{420B2830-E718-11CF-893D-00A0C9054228} 1.0 Scripting'],
+      'memo.txt': ['メモ'],
+    });
+    const { keep, remove } = splitSheets(book);
+    expect(keep).toEqual(['入力画面', 'マスタ']);
+    expect(remove).toEqual(expect.arrayContaining(['#tree', 'Agents.md', 'Module1.bas', 'memo.txt']));
+    const c = modulesFromBook(book);
     expect(c.errors).toEqual([]);
-    expect(c.keep).toEqual(['入力画面', 'マスタ']);
-    expect(c.remove).toEqual(expect.arrayContaining(['#tree', 'Agents.md', 'Module1.bas', 'memo.txt']));
-    expect(c.modules.map((m) => [m.sheet, m.kind, m.name, m.targetSheet])).toEqual([
+    expect(c.modules.map((m) => [m.file, m.kind, m.name, m.targetSheet])).toEqual([
       ['Module1.bas', 'standard', 'Module1', undefined],
       ['Class1.cls', 'class', 'Class1', undefined],
       ['入力画面.cls', 'sheet', '入力画面', '入力画面'],
@@ -150,15 +150,11 @@ describe('シートの仕分け', () => {
       ['UserForm1.frm', 'form', 'UserForm1', undefined],
     ]);
     expect(c.modules[4].code[0]).toBe('Private Sub btnOK_Click()');
-    expect(c.warnings.join('\n')).toContain('memo.txt');
-    expect(c.warnings.join('\n')).not.toContain('Agents.md');
+    expect(c.references.map((r) => r.guid)).toEqual(['{420B2830-E718-11CF-893D-00A0C9054228}']);
   });
 
-  it('使えないモジュール名・重複・文字列以外のセルはエラー', () => {
-    const c = collectModules(
-      bookWith({ 'My Module.bas': ['x'], 'a.bas': ['x'], 'A.cls': ['x'], '1st.bas': ['x'] }),
-      DEFAULT_CONFIG,
-    );
+  it('使えないモジュール名・重複はエラー', () => {
+    const c = modulesFromBook(bookWith({ 'My Module.bas': ['x'], 'a.bas': ['x'], 'A.cls': ['x'], '1st.bas': ['x'] }));
     const msg = c.errors.join('\n');
     expect(msg).toContain('「My Module.bas」');
     expect(msg).toContain('「1st.bas」');
@@ -166,7 +162,7 @@ describe('シートの仕分け', () => {
   });
 
   it('Attribute 行は除いて書き込み、警告する', () => {
-    const c = collectModules(bookWith({ 'M.bas': ['Attribute VB_Name = "M"', 'Option Explicit'] }), DEFAULT_CONFIG);
+    const c = modulesFromBook(bookWith({ 'M.bas': ['Attribute VB_Name = "M"', 'Option Explicit'] }));
     expect(c.modules[0].code).toEqual(['Option Explicit']);
     expect(c.warnings.join()).toContain('Attribute');
   });
@@ -181,7 +177,7 @@ interface Fake {
   inputSheets: string[][];
 }
 
-/** Excel の代わり。渡された .xlsx をそのまま「.xlsm」として保存する */
+/** Excel の代わり。渡された .xlsx に、受け取った内容を足して「.xlsm」として保存する */
 function fakeExcel(result: { ok: boolean; error?: string; errorKind?: 'vbom' } = { ok: true }): Fake {
   const fake: Fake = { jobs: [], inputSheets: [], runner: async () => ({ ok: true }) };
   fake.runner = async (job) => {
@@ -214,16 +210,25 @@ async function build(f: Fixture, runner: VbaRunner | null, confirmed = true) {
   return vbaBuild(f.root, f.file(names(f).book), { confirmed }, runner);
 }
 
-describe('VBA モードの Build', () => {
-  it('ブックの作成: ルールのシートと Module1.bas の雛形が入り、Agents.md は VBA 用', async () => {
+const sjis = async (f: Fixture, rel: string) => iconv.decode(await readFile(f.file(rel)), 'cp932');
+
+describe('VBA モードの Build / Sync', () => {
+  it('ブックの作成: Module1.bas と References.refs のファイルができてシートになり、.xlsm は Git 管理しない', async () => {
     const f = await vbaProject();
+    expect(await sjis(f, 'Module1.bas')).toBe('Option Explicit\r\n');
+    expect(await sjis(f, 'References.refs')).toMatch(/^' 参照設定/);
     const b = await Book.load(f.file(names(f).book));
-    expect(b.sheetNames()).toEqual(expect.arrayContaining(['#tree', 'Agents.md', 'LocalAgents.md', 'Module1.bas']));
-    expect(b.readSheet('Module1.bas').lines[0]).toBe('Option Explicit');
+    expect(b.sheetNames()).toEqual(
+      expect.arrayContaining(['#tree', 'Agents.md', 'LocalAgents.md', 'Module1.bas', 'References.refs']),
+    );
+    expect(await f.read('.gitignore')).toContain('*.xlsm');
     expect(await f.read('Agents.md')).toContain('Begin UserForm');
+    const st = await bookStatus(f.root, f.file(names(f).book));
+    expect(st.files.every((x) => x.status === 'clean')).toBe(true);
+    expect(st.files.find((x) => x.name === 'Module1.bas')?.format).toBe('Shift_JIS / CRLF');
   });
 
-  it('拡張子付きのシートを除いて Excel に渡し、.xlsm と控えを書き出す', async () => {
+  it('シート → ソースコード → .xlsm。ソースはシートと同じ内容（Shift_JIS・CRLF）で、.xlsm は Git に入らない', async () => {
     const f = await vbaProject();
     const { book, out } = names(f);
     await f.editBook(book, (b) => {
@@ -232,92 +237,91 @@ describe('VBA モードの Build', () => {
       b.writeLines('Class1.cls', ['Option Explicit', 'Public Name As String']);
       b.writeLines('入力画面.cls', ['Private Sub Worksheet_Change(ByVal Target As Range)', 'End Sub']);
       b.writeLines('UserForm1.frm', FORM);
+      b.writeLines('References.refs', ['{420B2830-E718-11CF-893D-00A0C9054228} 1.0 Scripting']);
     });
     const fake = fakeExcel();
     const r = await build(f, fake.runner);
     expect(r.errors).toEqual([]);
     expect(r.status).toBe('ok');
 
-    // Excel に渡したブックには UI のシートだけ
+    // ソースコード
+    expect(await sjis(f, 'Module1.bas')).toBe(
+      'Option Explicit\r\n\r\nSub Hello()\r\n    MsgBox "こんにちは"\r\nEnd Sub\r\n',
+    );
+    expect(await sjis(f, 'UserForm1.frm')).toContain('Begin UserForm UserForm1\r\n');
+    // Excel に渡したブックには画面のシートだけ
     expect(fake.inputSheets[0]).toEqual(['入力画面']);
     const job = fake.jobs[0];
-    expect(job.modules.map((m) => [m.name, m.kind])).toEqual([
-      ['Module1', 'standard'],
-      ['Class1', 'class'],
-      ['入力画面', 'sheet'],
-      ['UserForm1', 'form'],
+    expect(job.modules.map((m) => [m.file, m.kind])).toEqual([
+      ['Class1.cls', 'class'],
+      ['Module1.bas', 'standard'],
+      ['UserForm1.frm', 'form'],
+      ['入力画面.cls', 'sheet'],
     ]);
-    expect(job.modules[0].code).toBe('Option Explicit\r\n\r\nSub Hello()\r\n    MsgBox "こんにちは"\r\nEnd Sub');
-    expect(job.modules[3].form?.children).toHaveLength(3);
-
-    // ビルド結果はプロジェクトのフォルダに
+    expect(job.modules[1].code).toBe('Option Explicit\r\n\r\nSub Hello()\r\n    MsgBox "こんにちは"\r\nEnd Sub');
+    expect(job.references.map((x) => x.guid)).toEqual(['{420B2830-E718-11CF-893D-00A0C9054228}']);
     expect(await readdir(f.root)).toContain(out);
-    // 控えは Shift_JIS・CRLF、VBE でインポートできる見出し付き
-    const bas = iconv.decode(await readFile(f.file('vba/Module1.bas')), 'cp932');
-    expect(bas).toBe(
-      'Attribute VB_Name = "Module1"\r\nOption Explicit\r\n\r\nSub Hello()\r\n    MsgBox "こんにちは"\r\nEnd Sub\r\n',
-    );
-    const cls = iconv.decode(await readFile(f.file('vba/Class1.cls')), 'cp932');
-    expect(cls).toMatch(/^VERSION 1\.0 CLASS\r\nBEGIN\r\n/);
-    expect(cls).toContain('Attribute VB_Name = "Class1"\r\n');
-    expect(iconv.decode(await readFile(f.file('vba/UserForm1.frm.txt')), 'cp932')).toContain(
-      'Begin UserForm UserForm1',
-    );
-    expect(await readdir(f.file('vba'))).toEqual(['Class1.cls', 'Module1.bas', 'UserForm1.frm.txt', '入力画面.cls']);
 
-    // 編集用ブックは変更しない
-    const b = await Book.load(f.file(book));
-    expect(b.hasSheet('Module1.bas')).toBe(true);
+    // Git: ソースはコミットされ、.xlsm は管理外
+    await build(f, fakeExcel().runner);
+    const tracked = f.git('ls-files');
+    expect(tracked).toContain('Module1.bas');
+    expect(tracked).not.toContain('.xlsm');
+    expect(f.git('status', '--porcelain')).not.toContain('.xlsm');
 
-    // 状態: すべてビルド済み、ビルド結果は変更なし
     const st = await bookStatus(f.root, f.file(book));
     expect(st.files.every((x) => x.status === 'clean')).toBe(true);
     expect(st.vba).toMatchObject({ exists: true, changed: false });
-
-    // Git: Build 前の自動コミット
-    expect(f.git('log', '--oneline')).toContain('Build 前の自動コミット');
   });
 
-  it('変更が無ければ控えは書き直さない。シートの変更・削除は状態に出て、削除は確認のうえ控えも消す', async () => {
+  it('エディタでソースを直すと Sync でシートへ、次の Build で .xlsm へ入る', async () => {
+    const f = await vbaProject();
+    const { book } = names(f);
+    await f.write('Module1.bas', 'Option Explicit\r\nSub FromEditor()\r\nEnd Sub\r\n');
+    expect((await bookStatus(f.root, f.file(book))).files.find((x) => x.name === 'Module1.bas')?.status).toBe(
+      'source-changed',
+    );
+    await sync(f.root, f.file(book), { confirmed: true });
+    expect(await f.sheet(book, 'Module1.bas')).toEqual(['Option Explicit', 'Sub FromEditor()', 'End Sub']);
+    const fake = fakeExcel();
+    await build(f, fake.runner);
+    expect(fake.jobs[0].modules[0].code).toContain('FromEditor');
+  });
+
+  it('DEL_ でモジュールのファイルを消し、.xlsm からも消える', async () => {
     const f = await vbaProject();
     const { book } = names(f);
     await f.editBook(book, (b) => b.writeLines('Module2.bas', ['Sub A()', 'End Sub']));
     await build(f, fakeExcel().runner);
-
-    const again = await build(f, fakeExcel().runner);
-    expect(again.changes.filter((c) => c.target.startsWith('vba/'))).toEqual([]);
-
     await f.editBook(book, (b) => {
-      b.writeLines('Module1.bas', ['Option Explicit', "' 変更"]);
+      const lines = b.readSheet('Module2.bas').lines;
       b.deleteSheet('Module2.bas');
+      b.writeLines('DEL_Module2.bas', lines);
     });
-    const st = await bookStatus(f.root, f.file(book));
-    expect(st.files.map((x) => [x.name, x.status])).toEqual([
-      ['Module1.bas', 'excel-changed'],
-      ['Module2.bas', 'removed'],
-    ]);
     const confirm = await build(f, fakeExcel().runner, false);
-    expect(confirm.status).toBe('confirm');
     expect(confirm.confirmations.find((c) => c.kind === 'delete')?.files).toEqual(['Module2.bas']);
-    const r = await build(f, fakeExcel().runner);
+    const fake = fakeExcel();
+    const r = await build(f, fake.runner);
     expect(r.errors).toEqual([]);
-    expect(await readdir(f.file('vba'))).toEqual(['Module1.bas']);
-    expect(r.changes).toContainEqual({ action: 'delete-module', target: 'Module2.bas' });
+    expect(await readdir(f.root)).not.toContain('Module2.bas');
+    expect(fake.jobs[0].modules.map((m) => m.file)).toEqual(['Module1.bas']);
   });
 
-  it('ビルド結果が直接変更されていたら確認し、上書き前にバックアップを取る', async () => {
+  it('ビルド結果が直接変更されていたら、Build の確認と一緒に確認し、上書き前にバックアップを取る', async () => {
     const f = await vbaProject();
     const { book, out } = names(f);
     await build(f, fakeExcel().runner);
     await writeFile(f.file(out), 'データを直接入力した');
     expect((await bookStatus(f.root, f.file(book))).vba?.changed).toBe(true);
 
+    await f.editBook(book, (b) => b.writeLines('Module1.bas', ['Option Explicit', "' 変更"]));
     const confirm = await build(f, fakeExcel().runner, false);
     expect(confirm.confirmations.map((c) => c.kind)).toContain('overwrite');
+    // 確認の段階では、まだ何も書いていない
+    expect(await sjis(f, 'Module1.bas')).toBe('Option Explicit\r\n');
     const r = await build(f, fakeExcel().runner);
     expect(r.errors).toEqual([]);
     const backups = await readdir(f.file('.xlcode/backup/_root'));
-    expect(backups).toHaveLength(1);
     expect(await readFile(f.file(`.xlcode/backup/_root/${backups[0]}`), 'utf8')).toBe('データを直接入力した');
     expect((await bookStatus(f.root, f.file(book))).vba?.changed).toBe(false);
   });
@@ -340,7 +344,7 @@ describe('VBA モードの Build', () => {
     expect(r.confirmations.map((c) => c.kind)).toContain('shrink');
   });
 
-  it('Shift_JIS で表せない文字があれば、Excel を呼ばずに止める', async () => {
+  it('Shift_JIS で表せない文字があれば、何も書かずに止める', async () => {
     const f = await vbaProject();
     await f.editBook(names(f).book, (b) => b.writeLines('Module1.bas', ['MsgBox "😀"']));
     const fake = fakeExcel();
@@ -348,97 +352,63 @@ describe('VBA モードの Build', () => {
     expect(r.status).toBe('error');
     expect(r.errors.join()).toContain('Shift_JIS');
     expect(fake.jobs).toHaveLength(0);
+    expect(await sjis(f, 'Module1.bas')).toBe('Option Explicit\r\n');
   });
 
-  it('シートの間違い（フォームの書き方など）は、Excel を呼ばずに止める', async () => {
+  it('フォームの書き間違いは、画面の問題に出る。Build してもソースだけ出力し、.xlsm は作らない', async () => {
     const f = await vbaProject();
-    await f.editBook(names(f).book, (b) => b.writeLines('UserForm1.frm', ['Begin UserForm UserForm1']));
+    const { book, out } = names(f);
+    await f.editBook(book, (b) => b.writeLines('UserForm1.frm', ['Begin UserForm UserForm1']));
+    expect((await bookStatus(f.root, f.file(book))).errors.join()).toContain('「End」が足りません');
     const fake = fakeExcel();
     const r = await build(f, fake.runner);
-    expect(r.errors.join()).toContain('「End」が足りません');
+    expect(r.status).toBe('error');
+    expect(r.errors.join('\n')).toContain('「End」が足りません');
+    expect(r.errors.join('\n')).toContain('ソースコードへの出力は完了しています');
     expect(fake.jobs).toHaveLength(0);
+    expect(await readdir(f.root)).toContain('UserForm1.frm');
+    expect(await readdir(f.root)).not.toContain(out);
   });
 
-  it('Excel で失敗したら、ビルド結果・控え・状態は変えない', async () => {
+  it('Excel で失敗したら、ビルド結果と状態のハッシュは変えない', async () => {
     const f = await vbaProject();
     const { book, out } = names(f);
     await build(f, fakeExcel().runner);
     const before = await readFile(f.file(out));
-    const stateBefore = JSON.stringify(await loadState(f.root));
+    const hashBefore = (await loadState(f.root)).books[book].outputHash;
     await f.editBook(book, (b) => b.writeLines('Module1.bas', ['Sub Changed()', 'End Sub']));
     const r = await build(f, fakeExcel({ ok: false, error: 'アクセス拒否', errorKind: 'vbom' }).runner);
     expect(r.status).toBe('error');
     expect(r.errors).toContain(VBOM_HELP);
     expect(await readFile(f.file(out))).toEqual(before);
-    expect(iconv.decode(await readFile(f.file('vba/Module1.bas')), 'cp932')).not.toContain('Changed');
-    expect(JSON.stringify(await loadState(f.root))).toBe(stateBefore);
+    expect((await loadState(f.root)).books[book].outputHash).toBe(hashBefore);
+    // ソースは出力済み
+    expect(await sjis(f, 'Module1.bas')).toContain('Changed');
   });
 
-  it('ソースコードモードの Build / Sync は動かない', async () => {
+  it('Windows 以外（Excel が無い）では、何もせずにエラー', async () => {
     const f = await vbaProject();
-    const { build: sourceBuild, sync } = await import('../src/core');
-    const r1 = await sourceBuild(f.root, f.file(names(f).book), { confirmed: true });
-    const r2 = await sync(f.root, f.file(names(f).book), { confirmed: true });
-    expect(r1.errors.join()).toContain('VBA モードのプロジェクトです');
-    expect(r2.errors.join()).toContain('VBA モードのプロジェクトです');
-  });
-
-  it('Windows 以外（Excel が無い）では、確認の後にエラー', async () => {
-    const f = await vbaProject();
+    await f.editBook(names(f).book, (b) => b.writeLines('Module1.bas', ['Sub X()', 'End Sub']));
     const r = await build(f, null);
     expect(r.status).toBe('error');
     expect(r.errors.join()).toContain('Windows とデスクトップ版 Excel');
+    expect(await sjis(f, 'Module1.bas')).toBe('Option Explicit\r\n');
   });
 
-  it('編集用ブックがデスクトップ版で開かれていれば止める', async () => {
+  it('編集用ブック・ビルド結果が開かれていれば止める', async () => {
     const f = await vbaProject();
-    await writeFile(f.file(`~$${names(f).book}`), '');
-    const r = await build(f, fakeExcel().runner);
-    expect(r.errors.join()).toContain('開かれています');
+    await writeFile(f.file(`~$${names(f).out}`), '');
+    expect((await build(f, fakeExcel().runner)).errors.join()).toContain('ビルド結果');
+    const g = await vbaProject();
+    await writeFile(g.file(`~$${names(g).book}`), '');
+    expect((await build(g, fakeExcel().runner)).errors.join()).toContain('開かれています');
   });
 
-  it('UI のシートが 1 枚も無ければ、白紙のシートを 1 枚置く', async () => {
+  it('画面のシートが 1 枚も無ければ、白紙のシートを 1 枚置く', async () => {
     const f = await vbaProject();
     const fake = fakeExcel();
     await build(f, fake.runner);
     expect(fake.inputSheets[0]).toEqual(['Sheet1']);
-  });
-
-  it('Git: 控え（vba/）の変更も Build 前に自動コミットする', async () => {
-    const f = await vbaProject();
-    await build(f, fakeExcel().runner);
-    await writeFile(f.file('vba/Module1.bas'), 'エディタで直した');
-    const r = await build(f, fakeExcel().runner, false);
-    expect(r.confirmations.find((c) => c.kind === 'uncommitted')?.files).toContain('vba/Module1.bas');
-    await build(f, fakeExcel().runner);
-    expect(f.git('log', '--format=%s', '-1', '--', 'vba/Module1.bas')).toContain('Build 前の自動コミット');
-  });
-
-  it('控え（vba/）があれば、ブックを作り直したときにシートへ戻す', async () => {
-    const f = await vbaProject();
-    const { book } = names(f);
-    await f.editBook(book, (b) => {
-      b.writeLines('Class1.cls', ['Public Name As String']);
-      b.writeLines('UserForm1.frm', FORM);
-    });
-    await build(f, fakeExcel().runner);
-    const { rm } = await import('node:fs/promises');
-    await rm(f.file(book));
-    await createBook(f.root, f.root);
-    const b = await Book.load(f.file(book));
-    expect(b.readSheet('Class1.cls').lines).toEqual(['Public Name As String']);
-    expect(b.readSheet('UserForm1.frm').lines).toEqual(FORM.filter((_, i) => i < FORM.length));
-    expect(b.readSheet('Module1.bas').lines).toEqual(['Option Explicit']);
-  });
-
-  it('Refresh Tree で LocalAgents.md もシートへ配布する', async () => {
-    const f = await vbaProject();
-    await f.write('LocalAgents.md', '# LocalAgents.md\n\n- 入力画面の B2 が氏名\n');
-    await refreshTree(f.root);
-    const b = await Book.load(f.file(names(f).book));
-    expect(b.readSheet('LocalAgents.md').lines).toContain('- 入力画面の B2 が氏名');
-    const again = await refreshTree(f.root);
-    expect(again.books[0].unchanged).toBe(true);
   });
 });
 
@@ -489,16 +459,16 @@ describe.skipIf(!pwsh)('Excel を操作する PowerShell スクリプト（偽�
     const form = parseFormSheet('UserForm1.frm', FORM);
     const { r, out, excel } = await runJob([
       {
-        sheet: 'Module1.bas',
+        file: 'Module1.bas',
         name: 'Module1',
         kind: 'standard',
         code: code(['Option Explicit', 'Sub A()', 'End Sub']),
       },
-      { sheet: 'Class1.cls', name: 'Class1', kind: 'class', code: code(['Public X As Long']) },
-      { sheet: 'Sheet2.cls', name: 'Sheet2', kind: 'class', code: code(["' コード名で指定"]) },
-      { sheet: '入力画面.cls', name: '入力画面', kind: 'sheet', targetSheet: '入力画面', code: code(["' シート"]) },
-      { sheet: 'ThisWorkbook.cls', name: 'ThisWorkbook', kind: 'workbook', code: code(["' ブック"]) },
-      { sheet: 'UserForm1.frm', name: 'UserForm1', kind: 'form', code: code(form.code), form: form.form! },
+      { file: 'Class1.cls', name: 'Class1', kind: 'class', code: code(['Public X As Long']) },
+      { file: 'Sheet2.cls', name: 'Sheet2', kind: 'class', code: code(["' コード名で指定"]) },
+      { file: '入力画面.cls', name: '入力画面', kind: 'sheet', targetSheet: '入力画面', code: code(["' シート"]) },
+      { file: 'ThisWorkbook.cls', name: 'ThisWorkbook', kind: 'workbook', code: code(["' ブック"]) },
+      { file: 'UserForm1.frm', name: 'UserForm1', kind: 'form', code: code(form.code), form: form.form! },
     ]);
     expect(r).toEqual({ ok: true });
     expect(out.format).toBe(52);
@@ -546,7 +516,7 @@ describe.skipIf(!pwsh)('Excel を操作する PowerShell スクリプト（偽�
   }, 60_000);
 
   it('書き込めなかったら、どのシートの何行目かを知らせる', async () => {
-    const { r } = await runJob([{ sheet: '無い.cls', name: '無い', kind: 'sheet', targetSheet: '無い', code: '' }]);
+    const { r } = await runJob([{ file: '無い.cls', name: '無い', kind: 'sheet', targetSheet: '無い', code: '' }]);
     expect(r.ok).toBe(false);
     expect(r.error).toContain('無い.cls');
     expect(r.error).toContain('コードモジュールが見つかりません');

@@ -1,14 +1,14 @@
 import clsx from 'clsx';
 import { useState } from 'react';
 import type { BookSummary, BookSync, ProjectInfo } from '../../../shared/api';
-import { EXCEL_SIDE, SOURCE_SIDE, STATUS, SYNC_META, VBA_STATUS } from '../status';
+import { EXCEL_SIDE, SOURCE_SIDE, STATUS, SYNC_META } from '../status';
 import { Icon } from './Icons';
 import { IconButton, Section } from './ui';
 
 function bookBadges(b: BookSummary, treeVersion: string) {
   const files = b.files ?? [];
   return {
-    excel: files.filter((f) => EXCEL_SIDE.includes(f.status) || f.status === 'removed').length,
+    excel: files.filter((f) => EXCEL_SIDE.includes(f.status)).length,
     source: files.filter((f) => SOURCE_SIDE.includes(f.status)).length,
     conflict: files.filter((f) => f.status === 'conflict').length + (b.conflictSheets?.length ?? 0),
     problems: (b.errors?.length ?? 0) + (b.loadError ? 1 : 0),
@@ -39,7 +39,6 @@ export function Sidebar({
   onCreateBook: (dirRel: string) => void;
 }) {
   const [openBooks, setOpenBooks] = useState(true);
-  const vba = project.mode === 'vba';
   // ブックが無いときは、作成先を選べるよう最初から開いておく
   const [openDirs, setOpenDirs] = useState(project.books.length === 0);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -112,19 +111,14 @@ export function Sidebar({
                     )}
                     {badge.problems > 0 && <Icon.Error size={12} className="text-deleted" aria-label="エラー" />}
                     {badge.conflict > 0 && <span className="text-conflict">C{badge.conflict}</span>}
-                    {badge.excel > 0 && (
-                      <span className="text-modified" title={vba ? '未ビルドの変更' : 'Excel側で編集中'}>
-                        {vba ? 'M' : 'E'}
-                        {badge.excel}
-                      </span>
-                    )}
+                    {badge.excel > 0 && <span className="text-modified">E{badge.excel}</span>}
                     {badge.source > 0 && <span className="text-info">S{badge.source}</span>}
                   </span>
                 </div>
                 {isOpen && (
                   <ul role="group">
                     {(b.files ?? []).map((f) => {
-                      const m = (vba && VBA_STATUS[f.status]) || STATUS[f.status];
+                      const m = STATUS[f.status];
                       return (
                         <li
                           key={f.name}

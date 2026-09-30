@@ -7,13 +7,15 @@ import { autoCommit, isGitRepo, uncommittedChanges } from './git';
 import { checkBookOpen } from './lock';
 import { textToLines } from './normalize';
 import { bookRef, bookRootOf, openProject, type BookRef, type ProjectContext } from './project';
-import { newResult, type OpResult } from './result';
+import { newResult, type Confirmation, type OpResult } from './result';
 import { scanBook, type FileEntry, type Scan } from './scan';
 import { bookState, saveState, type BookState } from './state';
 
 export interface BuildOptions {
   /** 確認ダイアログでユーザーが続行を選んだ */
   confirmed?: boolean;
+  /** 呼び出し側（VBA モード）の確認事項。Build の確認と一緒に、何も書き込む前に出す */
+  extraConfirmations?: Confirmation[];
 }
 
 export interface SyncOptions {
@@ -185,10 +187,6 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
   const ctx = await openProject(root);
   const ref = bookRef(root, bookAbs, bookRootOf(root, ctx.config));
   const r = newResult();
-  if (ctx.config.mode === 'vba') {
-    r.errors.push('VBA モードのプロジェクトです（Build は VBA モードの処理で行い、Sync はありません）');
-    return { ...r, status: 'error' };
-  }
   const scan = await preflight(ctx, ref, r);
   if (!scan) return { ...r, status: 'error' };
   if (scan.conflictSheets.length > 0) {
@@ -236,6 +234,7 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
       files: scan.deletes.map((d) => d.fileName),
     });
   }
+  r.confirmations.push(...(opts.extraConfirmations ?? []));
   const useGit = await gitConfirmations(ctx, ref, r);
   if (r.confirmations.length > 0 && !opts.confirmed) return { ...r, status: 'confirm' };
   if (useGit && !(await commitBefore(ctx, ref, 'Build', r))) return r;
@@ -296,10 +295,6 @@ export async function sync(root: string, bookAbs: string, opts: SyncOptions = {}
   const ctx = await openProject(root);
   const ref = bookRef(root, bookAbs, bookRootOf(root, ctx.config));
   const r = newResult();
-  if (ctx.config.mode === 'vba') {
-    r.errors.push('VBA モードのプロジェクトです（Build は VBA モードの処理で行い、Sync はありません）');
-    return { ...r, status: 'error' };
-  }
   const scan = await preflight(ctx, ref, r);
   if (!scan) return { ...r, status: 'error' };
   const bs = bookState(ctx.state, ref.rel);

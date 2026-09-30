@@ -18,13 +18,15 @@ const UTF16LE_BOM = Buffer.from([0xff, 0xfe]);
 /**
  * 新しく作るファイルの形式（Windows 11 日本語環境を想定）
  * - .bat / .cmd / .vbs: Shift_JIS・CRLF（コマンドプロンプト・WSH の標準）
+ * - .bas / .cls / .frm / .refs: Shift_JIS・CRLF（VBA モード）
  * - .ps1 など: UTF-8（BOM あり）・CRLF（Windows PowerShell 5.1 は BOM なしを Shift_JIS として読む）
  * - .reg: UTF-16 LE・CRLF（レジストリエディタの形式）
  * - それ以外: UTF-8・LF
  */
 export function defaultFormat(fileName: string): TextFormat {
   const ext = fileName.toLowerCase().split('.').pop() ?? '';
-  if (['bat', 'cmd', 'vbs'].includes(ext)) return { encoding: 'sjis', eol: 'crlf' };
+  // VBA（.bas / .cls / .frm）と参照設定（.refs）も、VBE と同じ Shift_JIS・CRLF にする
+  if (['bat', 'cmd', 'vbs', 'bas', 'cls', 'frm', 'refs'].includes(ext)) return { encoding: 'sjis', eol: 'crlf' };
   if (['ps1', 'psm1', 'psd1'].includes(ext)) return { encoding: 'utf8bom', eol: 'crlf' };
   if (ext === 'reg') return { encoding: 'utf16le', eol: 'crlf' };
   return { encoding: 'utf8', eol: 'lf' };

@@ -2,10 +2,10 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { atomicWrite } from './atomic';
 import path from 'node:path';
 import type { Ignore } from 'ignore';
-import { AGENTS_SHEET, LOCAL_AGENTS_SHEET, TREE_FILE, TREE_SHEET, TREE_VERSION_PREFIX, XLCODE_DIR } from './constants';
+import { AGENTS_SHEET, TREE_FILE, TREE_SHEET, TREE_VERSION_PREFIX, XLCODE_DIR } from './constants';
 import { loadConfig } from './config';
 import { findBooks, loadIgnore, toPosixRel, walkTree, type TreeNode } from './fsutil';
-import { bookRef, bookRootOf } from './project';
+import { bookRootOf } from './project';
 import { checkBookOpen } from './lock';
 import { normalizeText, sha256, textToLines } from './normalize';
 import { Book } from './workbook';
@@ -43,29 +43,16 @@ export interface BookTreeResult {
   error?: string;
 }
 
-function sheetIs(book: Book, name: string, lines: string[]): boolean {
-  if (!book.hasSheet(name)) return false;
-  const current = book.readSheet(name).lines;
-  while (current.length > 0 && current[current.length - 1] === '') current.pop();
-  return current.length === lines.length && current.every((l, i) => l === lines[i]);
-}
-
-/**
- * #tree と Agents.md シート（VBA モードでは LocalAgents.md シートも）が既に最新か。
- * 最新なら保存しない（Web 版で編集中のブックとの同期の衝突を避ける）
- */
-export function treeUpToDate(
-  book: Book,
-  tree: TreeSnapshot,
-  agentsLines: string[] | null,
-  localAgentsLines: string[] | null = null,
-): boolean {
+/** #tree と Agents.md シートが既に最新か。最新なら保存しない（Web 版で編集中のブックとの同期の衝突を避ける） */
+export function treeUpToDate(book: Book, tree: TreeSnapshot, agentsLines: string[] | null): boolean {
   if (!book.hasSheet(TREE_SHEET)) return false;
   const lines = book.readSheet(TREE_SHEET).lines;
   if (parseTreeVersion(lines[0]) !== tree.version) return false;
-  if (agentsLines && !sheetIs(book, AGENTS_SHEET, agentsLines)) return false;
-  if (localAgentsLines && !sheetIs(book, LOCAL_AGENTS_SHEET, localAgentsLines)) return false;
-  return true;
+  if (!agentsLines) return true;
+  if (!book.hasSheet(AGENTS_SHEET)) return false;
+  const current = book.readSheet(AGENTS_SHEET).lines;
+  while (current.length > 0 && current[current.length - 1] === '') current.pop();
+  return current.length === agentsLines.length && current.every((l, i) => l === agentsLines[i]);
 }
 
 export interface RefreshResult {
@@ -75,37 +62,21 @@ export interface RefreshResult {
   partial: boolean;
 }
 
-/** #tree と Agents.md シート（VBA モードでは LocalAgents.md シートも）を書き込む（ブックの保存は呼び出し側） */
-export function applyTreeToBook(
-  book: Book,
-  tree: TreeSnapshot,
-  agentsLines: string[] | null,
-  localAgentsLines: string[] | null = null,
-): void {
+/** #tree と Agents.md シートを書き込む（ブックの保存は呼び出し側） */
+export function applyTreeToBook(book: Book, tree: TreeSnapshot, agentsLines: string[] | null): void {
   book.writeLines(TREE_SHEET, [tree.header, ...tree.lines]);
   book.moveToFront(TREE_SHEET);
   // No.21 暫定案: ルートの Agents.md を全ブックへ一方向配布する
   if (agentsLines) book.writeLines(AGENTS_SHEET, agentsLines);
-  // VBA モードには Sync が無いため、LocalAgents.md もここで配布する
-  if (localAgentsLines) book.writeLines(LOCAL_AGENTS_SHEET, localAgentsLines);
 }
 
-async function readRule(file: string): Promise<string[] | null> {
+export async function readRootAgents(root: string): Promise<string[] | null> {
   try {
-    const text = await readFile(file, 'utf8');
+    const text = await readFile(path.join(root, AGENTS_SHEET), 'utf8');
     return textToLines(normalizeText(text, AGENTS_SHEET, { trimTrailingWhitespace: false }));
   } catch {
     return null;
   }
-}
-
-export async function readRootAgents(root: string): Promise<string[] | null> {
-  return readRule(path.join(root, AGENTS_SHEET));
-}
-
-/** ディレクトリの LocalAgents.md（VBA モード用） */
-export async function readLocalAgents(dirAbs: string): Promise<string[] | null> {
-  return readRule(path.join(dirAbs, LOCAL_AGENTS_SHEET));
 }
 
 /** Refresh Tree（6章）: 全ブックの #tree を同一内容に更新する */
@@ -116,12 +87,10 @@ export async function refreshTree(root: string): Promise<RefreshResult> {
   await atomicWrite(path.join(root, XLCODE_DIR, TREE_FILE), [tree.header, ...tree.lines].join('\n') + '\n');
   const agents = await readRootAgents(root);
 
-  const config = await loadConfig(root);
-  const bookRoot = bookRootOf(root, config);
+  const bookRoot = bookRootOf(root, await loadConfig(root));
   const books: BookTreeResult[] = [];
   for (const abs of await findBooks(root, ig, bookRoot)) {
     const rel = toPosixRel(bookRoot, abs);
-    const local = config.mode === 'vba' ? await readLocalAgents(bookRef(root, abs, bookRoot).dirAbs) : null;
     try {
       const open = await checkBookOpen(abs);
       if (open.open) {
@@ -129,11 +98,11 @@ export async function refreshTree(root: string): Promise<RefreshResult> {
         continue;
       }
       const book = await Book.load(abs);
-      if (treeUpToDate(book, tree, agents, local)) {
+      if (treeUpToDate(book, tree, agents)) {
         books.push({ book: rel, ok: true, unchanged: true });
         continue;
       }
-      applyTreeToBook(book, tree, agents, local);
+      applyTreeToBook(book, tree, agents);
       const again = await checkBookOpen(abs);
       if (again.open) {
         books.push({ book: rel, ok: false, error: `開かれています（${again.reason}）` });

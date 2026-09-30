@@ -85,7 +85,7 @@ export function StatusBar({
       <div className="flex-1" />
       {project && editing.length > 0 && (
         <Item title={editing.join('\n')} className="text-modified">
-          {project.mode === 'vba' ? '未ビルド' : 'Excel側で編集中'}: {editing.length}
+          Excel側で編集中: {editing.length}
         </Item>
       )}
       {project && (

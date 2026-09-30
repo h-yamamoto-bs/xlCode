@@ -201,7 +201,7 @@ describe('ブックの置き場所', () => {
     expect(await f.read('app/util.ts')).toBe('export const one = 1;\nexport const moved = 2;\n');
   });
 
-  it('最初のブックを作るときにプロジェクトの種類を選び、VBA なら Sync が無くビルド結果の案内が出る', async () => {
+  it('最初のブックを作るときにプロジェクトの種類を選び、VBA ならソースと .xlsm の案内が出る', async () => {
     const { fixture } = await import('../tests/helpers');
     const f = await fixture({ 'README.txt': 'ツール\n' }, { git: true });
     running = await launch(f.root);
@@ -215,15 +215,16 @@ describe('ブックの置き場所', () => {
     const path = await import('node:path');
     const name = path.basename(f.root);
     await win.getByText('まだ Build していません', { exact: false }).waitFor();
-    await expect(win.getByRole('button', { name: 'Sync', exact: true }).count()).resolves.toBe(0);
+    await expect(win.getByRole('button', { name: 'Sync', exact: true }).count()).resolves.toBe(1);
     await expect(win.getByText('Module1.bas').first().isVisible()).resolves.toBe(true);
     expect(await f.read('Agents.md')).toContain('Begin UserForm');
-
-    // この環境（Windows 以外）では Excel が無いため、確認の後にエラーになる
-    await win.getByRole('button', { name: 'Build', exact: true }).click();
-    await win.getByRole('button', { name: '続行', exact: true }).click();
-    await waitLog(win, /Windows とデスクトップ版 Excel が必要です/);
     const { readdir } = await import('node:fs/promises');
+    expect(await readdir(f.root)).toEqual(expect.arrayContaining(['Module1.bas', 'References.refs']));
+
+    // この環境（Windows 以外）では Excel が無いため、エラーになる
+    await win.getByRole('button', { name: 'Build', exact: true }).click();
+    await win.getByRole('button', { name: '閉じたので続行' }).click();
+    await waitLog(win, /Windows とデスクトップ版 Excel が必要です/);
     expect(await readdir(f.root)).not.toContain(`${name}.xlsm`);
   });
 

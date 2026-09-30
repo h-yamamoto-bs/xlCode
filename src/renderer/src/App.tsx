@@ -456,18 +456,11 @@ export function App() {
     [root],
   );
 
-  const vbaMode = project?.mode === 'vba';
-
-  /**
-   * Excel 側・OneDrive 側の準備ができているか（Build / Sync / 開く の前）。
-   * VBA モードはブックに書き込まないため、Web 版で閉じたかの確認は省く（編集が届いているかは確認する）
-   */
+  /** Excel 側・OneDrive 側の準備ができているか（Build / Sync / 開く の前） */
   const ready = useCallback(
     async (book: string, label: string) =>
-      (vbaMode || (await confirmWebClosed(book))) &&
-      (await waitForOneDrive(book, label)) &&
-      (await checkWebEdits(book, label)),
-    [confirmWebClosed, waitForOneDrive, checkWebEdits, vbaMode],
+      (await confirmWebClosed(book)) && (await waitForOneDrive(book, label)) && (await checkWebEdits(book, label)),
+    [confirmWebClosed, waitForOneDrive, checkWebEdits],
   );
 
   const onBuild = useCallback(
@@ -495,12 +488,10 @@ export function App() {
   /** 5.5-2: Sync → 起動を1操作にまとめる */
   const onOpenExcel = useCallback(
     (book: string, via: OpenVia) =>
-      withBusy(vbaMode ? 'Excel を起動中' : 'Sync して Excel を起動中', async () => {
-        if (!vbaMode) {
-          if (!(await ready(book, 'Sync'))) return;
-          setBusy('Sync して Excel を起動中');
-          if (!(await syncFlow(book))) return;
-        }
+      withBusy('Sync して Excel を起動中', async () => {
+        if (!(await ready(book, 'Sync'))) return;
+        setBusy('Sync して Excel を起動中');
+        if (!(await syncFlow(book))) return;
         // Web 版は、Sync で書き換えたブックが OneDrive にアップロードされてから開く（古い内容が表示されないように）
         if (via === 'web' && !(await waitForOneDrive(book, '開く'))) return;
         const opened = await api.openInExcel(root!, book, via);
@@ -528,7 +519,7 @@ export function App() {
         log('info', via === 'web' ? `Web 版 Excel で開きました: ${url}` : `デスクトップ版 Excel で開きました: ${book}`);
       }),
 
-    [withBusy, ready, syncFlow, root, log, ask, waitForOneDrive, vbaMode],
+    [withBusy, ready, syncFlow, root, log, ask, waitForOneDrive],
   );
 
   const onRefreshTree = useCallback(
@@ -940,14 +931,14 @@ export function App() {
       } else if (k === 'b' && selected) {
         e.preventDefault();
         void onBuild(selected);
-      } else if (k === 's' && e.shiftKey && selected && !vbaMode) {
+      } else if (k === 's' && e.shiftKey && selected) {
         e.preventDefault();
         void onSync(selected);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [pickProject, onBuild, onSync, selected, vbaMode]);
+  }, [pickProject, onBuild, onSync, selected]);
 
   const problems = useMemo<Problem[]>(() => {
     if (!project) return [];
@@ -1097,7 +1088,6 @@ export function App() {
                 key={ruleRel}
                 root={project.root}
                 rel={ruleRel}
-                vba={project.mode === 'vba'}
                 draft={drafts[ruleRel]}
                 onDraft={setDraft}
                 onError={(m) => log('error', m)}

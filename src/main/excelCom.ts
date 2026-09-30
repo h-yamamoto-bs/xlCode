@@ -186,7 +186,7 @@ function Add-Controls($controls, $nodes, [string]$sheet) {
 
   foreach ($m in @($job.modules)) {
     if ($null -eq $m) { continue }
-    $script:where = $m.sheet
+    $script:where = $m.file
     switch ($m.kind) {
       'standard' {
         $c = $vbp.VBComponents.Add(1); $c.Name = $m.name; Set-Code $c $m.code
@@ -212,15 +212,15 @@ function Add-Controls($controls, $nodes, [string]$sheet) {
         $c.Name = $m.name
         foreach ($p in @($m.form.props)) {
           if ($null -eq $p) { continue }
-          $script:where = "$($m.sheet) $($p.line) 行目（$($p.name)）"
+          $script:where = "$($m.file) $($p.line) 行目（$($p.name)）"
           $v = Conv $p
           if ($p.name.Contains('.')) { Set-Path $c.Designer $p.name $v }
           else {
             try { $c.Properties.Item($p.name).Value = $v } catch { Set-Path $c.Designer $p.name $v }
           }
         }
-        Add-Controls $c.Designer.Controls $m.form.children $m.sheet
-        $script:where = $m.sheet
+        Add-Controls $c.Designer.Controls $m.form.children $m.file
+        $script:where = $m.file
         Set-Code $c $m.code
       }
     }

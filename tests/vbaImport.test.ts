@@ -4,10 +4,9 @@ import path from 'node:path';
 import ExcelJS from 'exceljs';
 import iconv from 'iconv-lite';
 import { describe, expect, it } from 'vitest';
-import { createBook, initProject, saveConfig, type VbaImporter, type VbaRunner } from '../src/core';
+import { bookStatus, initProject, saveConfig, type VbaImporter, type VbaRunner } from '../src/core';
 import { DEFAULT_CONFIG } from '../src/core/config';
-import { loadState } from '../src/core/state';
-import { collectModules, vbaBuild } from '../src/core/vba';
+import { modulesFromBook, vbaBuild } from '../src/core/vba';
 import { parseFormSheet } from '../src/core/vbaForm';
 import { createBookFromTool, modulesToSheets, renderForm, type ImportedModule } from '../src/core/vbaImport';
 import { parseRefs, renderRefs } from '../src/core/vbaRefs';
@@ -196,41 +195,63 @@ const bookOf = (f: Fixture) => `${path.basename(f.root)}.xlcode.xlsx`;
 const outOf = (f: Fixture) => `${path.basename(f.root)}.xlsm`;
 
 describe('既存の Excel ツールから編集用ブックを作る', () => {
-  it('シートはそのまま、モジュール・フォーム・参照設定をシートにする。元のツールは変えない', async () => {
+  it('シートはそのまま、モジュール・フォーム・参照設定をソースコードとシートにする。元のツールは変えない', async () => {
     const f = await vbaProject();
     await writeFile(f.file('tool.xlsm'), '元のツール');
     const imp = fakeImporter(TOOL_MODULES);
     const r = await createBookFromTool(f.root, f.root, f.file('tool.xlsm'), imp);
-    expect(r.sheets).toEqual(['Module1.bas', '入力画面.cls', 'UserForm1.frm']);
+    // ルートのディレクトリなので .gitignore もシートになる（ソースコードモードと同じ）
+    expect(r.sheets.filter((n) => n !== '.gitignore')).toEqual([
+      'LocalAgents.md',
+      'Module1.bas',
+      'References.refs',
+      'UserForm1.frm',
+      '入力画面.cls',
+    ]);
     expect(r.skipped.join()).toContain('ほかのブックへの参照');
     // 元のファイルではなくコピーを開く
     expect(imp.calls[0]).not.toBe(f.file('tool.xlsm'));
     expect(await readFile(f.file('tool.xlsm'), 'utf8')).toBe('元のツール');
 
+    // ソースコード（Shift_JIS・CRLF）
+    expect(iconv.decode(await readFile(f.file('Module1.bas')), 'cp932')).toBe(
+      'Option Explicit\r\nSub Hello()\r\n    MsgBox "こんにちは"\r\nEnd Sub\r\n',
+    );
+    expect(iconv.decode(await readFile(f.file('References.refs')), 'cp932')).toContain(
+      `${SCRIPTING} 1.0 Microsoft Scripting Runtime`,
+    );
+    expect(await f.read('LocalAgents.md')).toContain('tool.xlsm から取り込んだ');
+
+    // 編集用ブック: 画面のシートはそのまま、ソースコードがシートになる
     const b = await Book.load(f.file(bookOf(f)));
     expect(b.sheetNames()).toEqual(
-      expect.arrayContaining(['#tree', '入力画面', 'マスタ', 'Agents.md', 'LocalAgents.md', '#refs', 'Module1.bas']),
+      expect.arrayContaining([
+        '#tree',
+        '入力画面',
+        'マスタ',
+        'Agents.md',
+        'LocalAgents.md',
+        'References.refs',
+        'Module1.bas',
+      ]),
     );
     expect(b.readSheet('入力画面').lines).toEqual(['入力画面 の画面']);
     expect(b.readSheet('UserForm1.frm').lines[0]).toBe('Begin UserForm UserForm1');
-    expect(b.readSheet('#refs').lines).toContain(`${SCRIPTING} 1.0 Microsoft Scripting Runtime`);
-    expect(await f.read('LocalAgents.md')).toContain('tool.xlsm から取り込んだ');
-
-    // そのまま Build できる（参照設定も渡る）
-    const c = collectModules(b, DEFAULT_CONFIG);
+    const c = modulesFromBook(b);
     expect(c.errors).toEqual([]);
-    expect(c.keep).toEqual(['入力画面', 'マスタ']);
     expect(c.references.map((x) => x.guid)).toEqual([SCRIPTING]);
-    expect(c.modules.map((m) => [m.sheet, m.kind])).toEqual([
+    expect(c.modules.map((m) => [m.file, m.kind])).toEqual([
       ['Module1.bas', 'standard'],
-      ['入力画面.cls', 'sheet'],
       ['UserForm1.frm', 'form'],
+      ['入力画面.cls', 'sheet'],
     ]);
-    // 状態は空（最初の Build で全部を書き込む）
-    expect((await loadState(f.root)).books[bookOf(f)].files).toEqual({});
+    // シートとソースは同じ（すべて同期済み）
+    const st = await bookStatus(f.root, f.file(bookOf(f)));
+    expect(st.errors).toEqual([]);
+    expect(st.files.every((x) => x.status === 'clean')).toBe(true);
   });
 
-  it('取り込んだツールがビルド結果の場所にあれば、最初の Build で上書きを確認し、控えに参照設定も書く', async () => {
+  it('取り込んだツールがビルド結果の場所にあれば、最初の Build で上書きを確認する', async () => {
     const f = await vbaProject();
     await writeFile(f.file(outOf(f)), '元のツール');
     await createBookFromTool(f.root, f.root, f.file(outOf(f)), fakeImporter(TOOL_MODULES));
@@ -246,16 +267,19 @@ describe('既存の Excel ツールから編集用ブックを作る', () => {
     expect(job.references).toEqual([
       { guid: SCRIPTING, major: 1, minor: 0, description: 'Microsoft Scripting Runtime' },
     ]);
-    expect(iconv.decode(await readFile(f.file('vba/references.txt')), 'cp932')).toContain(`${SCRIPTING} 1.0`);
     const backups = await readdir(f.file('.xlcode/backup/_root'));
     expect(await readFile(f.file(`.xlcode/backup/_root/${backups[0]}`), 'utf8')).toBe('元のツール');
+  });
 
-    // 控えからブックを作り直すと #refs も戻る
-    const { rm } = await import('node:fs/promises');
-    await rm(f.file(bookOf(f)));
-    await createBook(f.root, f.root);
-    const b = await Book.load(f.file(bookOf(f)));
-    expect(parseRefs('#refs', b.readSheet('#refs').lines).refs.map((x) => x.guid)).toEqual([SCRIPTING]);
+  it('取り込み先に同じ名前のソースがあれば、何も書かずに止める', async () => {
+    const f = await vbaProject();
+    await writeFile(f.file('tool.xlsm'), 'x');
+    await f.write('Module1.bas', '既存');
+    await expect(createBookFromTool(f.root, f.root, f.file('tool.xlsm'), fakeImporter(TOOL_MODULES))).rejects.toThrow(
+      '同じ名前のファイル',
+    );
+    expect(await f.read('Module1.bas')).toBe('既存');
+    expect(await readdir(f.root)).not.toContain('UserForm1.frm');
   });
 
   it('拡張子のように見える名前のシートは注意を出す', async () => {
@@ -402,7 +426,15 @@ describe.skipIf(!pwsh)('取り込み用の PowerShell スクリプト（偽の E
         runImportJob(job, { exe: 'pwsh', script: fake(IMPORT_SCRIPT) }),
       );
     const created = await createBookFromTool(f.root, f.root, tool, importer);
-    expect(created.sheets).toEqual(['ThisWorkbook.cls', '入力画面.cls', 'Module1.bas', 'Class1.cls', 'UserForm1.frm']);
+    expect(created.sheets.filter((n) => !['.gitignore', 'spec.json'].includes(n))).toEqual([
+      'LocalAgents.md',
+      'Class1.cls',
+      'Module1.bas',
+      'References.refs',
+      'ThisWorkbook.cls',
+      'UserForm1.frm',
+      '入力画面.cls',
+    ]);
     expect(created.skipped.join('\n')).toContain('OtherBook');
     expect(created.skipped.join('\n')).toContain('ref1（RefEdit）');
 
@@ -423,7 +455,9 @@ describe.skipIf(!pwsh)('取り込み用の PowerShell スクリプト（偽の E
     expect(frm).toContain('         Begin TextBox txtA');
     expect(frm.slice(-3)).toEqual(SPEC.components[5].code);
     expect(parseFormSheet('UserForm1.frm', frm).errors).toEqual([]);
-    expect(parseRefs('#refs', b.readSheet('#refs').lines).refs.map((r) => r.guid)).toEqual([SCRIPTING]);
+    expect(parseRefs('References.refs', b.readSheet('References.refs').lines).refs.map((r) => r.guid)).toEqual([
+      SCRIPTING,
+    ]);
 
     // Build（偽の Excel が書き込んだ内容を確かめる）
     const runner: VbaRunner = (job) =>

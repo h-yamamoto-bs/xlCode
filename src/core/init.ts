@@ -1,14 +1,15 @@
-import { access, appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { AGENTS_SHEET, LOCAL_AGENTS_SHEET, REFS_SHEET, XLCODE_DIR } from './constants';
+import { AGENTS_SHEET, LOCAL_AGENTS_SHEET, XLCODE_DIR } from './constants';
+import { encodeFile } from './encoding';
 import { excelPathError, listSourceFiles, readTextFile } from './fsutil';
-import { textToLines } from './normalize';
+import { linesToText, textToLines } from './normalize';
 import { bookPathFor, bookRef, bookRootOf, booksInDir, openProject } from './project';
 import { bookState, saveState } from './state';
 import { loadConfig } from './config';
-import { readCopies } from './vba';
+import { REFS_FILE, VBA_GITIGNORE, vbaExt } from './vba';
 import { renderRefs } from './vbaRefs';
-import { applyTreeToBook, computeTree, readLocalAgents, readRootAgents } from './tree';
+import { applyTreeToBook, computeTree, readRootAgents } from './tree';
 import { isCodeName, validateFileName } from './sheetName';
 import { Book } from './workbook';
 
@@ -37,9 +38,10 @@ const VBA_AGENTS_TEMPLATE = `# Agents.md
 - 各モジュールの先頭に Option Explicit を書く。Attribute 行は書かない
 - 外部のライブラリ（Dictionary・正規表現・ADO など）は CreateObject で使う書き方をおすすめする
   （例: \`Dim d As Object: Set d = CreateObject("Scripting.Dictionary")\`）
-  - 参照設定が必要な書き方（\`Dim d As New Scripting.Dictionary\`）をした場合は、#refs シートへの追加が必要だと利用者に伝える
+  - 参照設定が必要な書き方（\`Dim d As New Scripting.Dictionary\`）をした場合は、References.refs シートに \`{GUID} 1.0 説明\` の行を足す
 - 拡張子のないシートは画面（UI）とデータ。指示が無い限り中身を変えない
-- 「#」で始まるシート、Agents.md・LocalAgents.md シートは編集しない
+- モジュールを削除するときは、シート名の先頭に DEL_ を付ける（シートを消すだけでは削除されない）
+- 「#」で始まるシート、Agents.md シートは編集しない
 - ユーザーフォームは、先頭に配置を書き、その後にコードを書く
 
 \`\`\`vb
@@ -93,7 +95,9 @@ export async function initProject(root: string): Promise<string[]> {
   const vba = (await loadConfig(root)).mode === 'vba';
   const gi = path.join(root, '.gitignore');
   const current = (await readFile(gi, 'utf8').catch(() => '')).split(/\r?\n/).map((l) => l.trim());
-  const missing = GITIGNORE_ENTRIES.filter((e) => !current.includes(e));
+  // VBA モードでは、ビルド結果（.xlsm）を Git 管理しない
+  const entries = vba ? [...GITIGNORE_ENTRIES, VBA_GITIGNORE] : GITIGNORE_ENTRIES;
+  const missing = entries.filter((e) => !current.includes(e));
   if (missing.length > 0) {
     const prefix = current.join('') === '' || current[current.length - 1] === '' ? '' : '\n';
     await appendFile(gi, `${prefix}# xlCode\n${missing.join('\n')}\n`);
@@ -113,8 +117,37 @@ export interface CreateBookResult {
   skipped: string[];
 }
 
+export interface CreateBookOptions {
+  /** もとにするブック（既存の Excel ツールから取り込むとき。画面・データのシートを持つ .xlsx） */
+  base?: Uint8Array;
+}
+
+/**
+ * VBA モードで、ソースのフォルダに VBA のファイルが無ければ雛形を置く。
+ * 参照設定のファイル（References.refs）は、無ければ必ず置く
+ */
+export async function writeVbaStarters(dirAbs: string): Promise<string[]> {
+  const made: string[] = [];
+  const sjis = (lines: string[], name: string) =>
+    encodeFile(linesToText(lines), { encoding: 'sjis', eol: 'crlf' }, name);
+  const names = await readdir(dirAbs);
+  if (!names.some((n) => vbaExt(n))) {
+    await writeFile(path.join(dirAbs, 'Module1.bas'), sjis(['Option Explicit'], 'Module1.bas'));
+    made.push('Module1.bas');
+  }
+  if (!names.some((n) => n.toLowerCase() === REFS_FILE.toLowerCase())) {
+    await writeFile(path.join(dirAbs, REFS_FILE), sjis(renderRefs([]), REFS_FILE));
+    made.push(REFS_FILE);
+  }
+  return made;
+}
+
 /** ディレクトリに <dir_name>.xlcode.xlsx を作成し、既存ファイルをシートとして取り込む */
-export async function createBook(root: string, dirAbs: string): Promise<CreateBookResult> {
+export async function createBook(
+  root: string,
+  dirAbs: string,
+  opts: CreateBookOptions = {},
+): Promise<CreateBookResult> {
   const ctx = await openProject(root);
   const bookRoot = bookRootOf(root, ctx.config);
   const bookAbs = bookPathFor(root, bookRoot, dirAbs);
@@ -130,27 +163,14 @@ export async function createBook(root: string, dirAbs: string): Promise<CreateBo
   if (!(await exists(localAgents)))
     await writeFile(localAgents, vba ? VBA_LOCAL_AGENTS_TEMPLATE : LOCAL_AGENTS_TEMPLATE);
 
-  // 作成するブック自身も #tree に載るよう、先に空のブックを保存してからツリーを取る
-  const book = Book.create();
+  if (vba) await writeVbaStarters(dirAbs);
+
+  // 作成するブック自身も #tree に載るよう、先に空のブック（取り込みではもとのブック）を保存してからツリーを取る
+  const book = opts.base ? await Book.fromBuffer(opts.base, bookAbs) : Book.create();
   await book.save(bookAbs);
   const bs = bookState(ctx.state, ref.rel);
   const sheets: string[] = [];
   const skipped: string[] = [];
-  if (vba) {
-    // VBA モード: ルールのシートと、控え（vba/）があればそのコードをシートにする
-    applyTreeToBook(book, await computeTree(root, ctx.ig), await readRootAgents(root), await readLocalAgents(dirAbs));
-    for (const c of await readCopies(dirAbs)) {
-      book.writeLines(c.sheet, c.lines);
-      sheets.push(c.sheet);
-    }
-    if (!sheets.includes(REFS_SHEET)) book.writeLines(REFS_SHEET, renderRefs([]));
-    if (!sheets.some((n) => n !== REFS_SHEET)) book.writeLines('Module1.bas', ['Option Explicit', '']);
-    await book.save(bookAbs);
-    // 控えから作ったシートは、次の Build で「未ビルド」として扱う（ビルド結果が控えと同じとは限らないため）
-    bs.files = {};
-    await saveState(root, ctx.state);
-    return { book: ref.rel, sheets, skipped };
-  }
   applyTreeToBook(book, await computeTree(root, ctx.ig), await readRootAgents(root));
   const files = await listSourceFiles(root, dirAbs, ctx.ig);
   // LocalAgents.md を先頭に

@@ -66,7 +66,6 @@ export function RulesList({
 export function RulesEditor({
   root,
   rel,
-  vba,
   draft,
   onDraft,
   onSaved,
@@ -74,8 +73,6 @@ export function RulesEditor({
 }: {
   root: string;
   rel: string;
-  /** VBA モード（LocalAgents.md も Refresh Tree で配布する） */
-  vba: boolean;
   draft: Draft | undefined;
   onDraft: (rel: string, draft: Draft | null) => void;
   onSaved: (rel: string) => void;
@@ -155,9 +152,7 @@ export function RulesEditor({
       <div className="shrink-0 border-b border-line bg-side px-4 py-1.5 text-[12px] text-muted">
         {isAgents
           ? 'プロジェクト共通のルール。保存後に Refresh Tree を実行すると、全ブックの Agents.md シートへ配布されます。'
-          : vba
-            ? 'このブック固有のルール。保存後に Refresh Tree を実行すると、ブックの LocalAgents.md シートへ反映されます。'
-            : 'このディレクトリ固有のルール。保存後に Sync すると、ブックの LocalAgents.md シートへ反映されます。'}
+          : 'このディレクトリ固有のルール。保存後に Sync すると、ブックの LocalAgents.md シートへ反映されます。'}
         {!exists && ' ファイルはまだありません。保存すると作成します。'}
       </div>
       {changedOnDisk && (

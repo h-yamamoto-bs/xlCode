@@ -1,26 +1,26 @@
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { LOCAL_AGENTS_SHEET, REFS_SHEET } from './constants';
+import { LOCAL_AGENTS_SHEET } from './constants';
+import { encodeFile } from './encoding';
 import { excelPathError } from './fsutil';
-import { bookPathFor, bookRef, bookRootOf, booksInDir, exists, openProject } from './project';
+import { createBook, type CreateBookResult } from './init';
+import { linesToText } from './normalize';
+import { bookPathFor, bookRootOf, booksInDir, exists, openProject } from './project';
 import { classifySheet, validateFileName } from './sheetName';
-import { bookState, saveState } from './state';
-import { applyTreeToBook, computeTree, readLocalAgents, readRootAgents } from './tree';
-import { VBOM_HELP, type VbaRunResult } from './vba';
+import { REFS_FILE, VBOM_HELP, type VbaRunResult } from './vba';
 import { FORM_CONTROLS } from './vbaForm';
 import { renderRefs, type VbaReference } from './vbaRefs';
 import { Book } from './workbook';
-import type { CreateBookResult } from './init';
 
 /**
- * 既存の Excel ツール（.xlsm など）から編集用ブックを作る（VBA モード）。
+ * 既存の Excel ツール（.xlsm など）から、ソースコードと編集用ブックを作る（VBA モード）。
  *
  * 画面に出さない Excel でツールのコピーを開き、
- * - シート（UI・データ）は .xlsx として保存し直したものをそのまま使う（図形・ボタン・書式を残す）
- * - VBA のモジュールはシート（Module1.bas など）にする。フォームは配置を Begin 〜 End の形に書き起こす
- * - 参照設定は #refs シートにする
- * 元のツールは変更しない。
+ * - シート（画面・データ）は .xlsx として保存し直したものを編集用ブックのもとにする（図形・ボタン・書式を残す）
+ * - VBA のモジュールはソースコード（Module1.bas など）にする。フォームは配置を Begin 〜 End の形に書き起こす
+ * - 参照設定は References.refs にする
+ * その後、ソースコードモードと同じようにファイルをシートとして取り込む。元のツールは変更しない。
  */
 
 export type ImportValue = string | number | boolean;
@@ -185,7 +185,7 @@ export function modulesToSheets(
 }
 
 /**
- * 既存のツールから、ディレクトリの編集用ブックを作る。
+ * 既存のツールから、ディレクトリのソースコードと編集用ブックを作る。
  * importer は Excel を操作する処理（Windows 以外では null）
  */
 export async function createBookFromTool(
@@ -201,8 +201,7 @@ export async function createBookFromTool(
     throw new Error(`取り込めるのは ${TOOL_EXTENSIONS.map((e) => `.${e}`).join(' / ')} です: ${toolFile}`);
   }
   if (!(await exists(toolFile))) throw new Error(`ファイルがありません: ${toolFile}`);
-  const bookRoot = bookRootOf(root, ctx.config);
-  const bookAbs = bookPathFor(root, bookRoot, dirAbs);
+  const bookAbs = bookPathFor(root, bookRootOf(root, ctx.config), dirAbs);
   const existing = await booksInDir(path.dirname(bookAbs));
   if (existing.length > 0) throw new Error(`既にブックがあります: ${existing.join(', ')}`);
   const longPath = excelPathError(bookAbs);
@@ -221,41 +220,45 @@ export async function createBookFromTool(
       if (res.errorKind === 'vbom') msg.push(VBOM_HELP);
       throw new Error(msg.join('\n'));
     }
-    const bytes = await readFile(output);
-    const book = await Book.fromBuffer(bytes, toolFile);
-    const skipped = [...(res.warnings ?? [])];
-    const ui = book.sheetNames();
+    const base = await readFile(output);
+    const ui = (await Book.fromBuffer(base, toolFile)).sheetNames();
+    const notes = [...(res.warnings ?? [])];
     for (const s of ui) {
       if (classifySheet(s, ctx.config.extraCodeNames).kind !== 'other') {
-        skipped.push(
-          `シート「${s}」は拡張子付き（または # で始まる）の名前のため、Build でビルド結果から除かれます。名前を変えてください`,
+        notes.push(
+          `シート「${s}」は拡張子付き（または # で始まる）の名前のため、コードのシートとして扱われます。名前を変えてください`,
         );
       }
     }
     const conv = modulesToSheets(res.modules ?? [], ui);
-    skipped.push(...conv.warnings);
+    notes.push(...conv.warnings);
+    const files = [...conv.sheets, { name: REFS_FILE, lines: renderRefs(res.references ?? []) }];
 
-    await mkdir(path.dirname(bookAbs), { recursive: true });
-    const ref = bookRef(root, bookAbs, bookRoot);
+    // ソースコードとして書き出す（既にあるファイルは上書きしない）
+    await mkdir(dirAbs, { recursive: true });
+    const clash: string[] = [];
+    for (const f of files) if (await exists(path.join(dirAbs, f.name))) clash.push(f.name);
+    if (clash.length > 0) {
+      throw new Error(
+        `取り込み先に同じ名前のファイルがあります: ${clash.join(', ')}。移動するか削除してから取り込んでください`,
+      );
+    }
+    for (const f of files) {
+      await writeFile(
+        path.join(dirAbs, f.name),
+        encodeFile(linesToText(f.lines), { encoding: 'sjis', eol: 'crlf' }, f.name),
+      );
+    }
     const localAgents = path.join(dirAbs, LOCAL_AGENTS_SHEET);
     if (!(await exists(localAgents))) {
       await writeFile(
         localAgents,
-        `# LocalAgents.md\n\n- ${path.basename(toolFile)} から取り込んだツール\n- UI シートの構成（どのシートの何のセルに何があるか、ボタンに登録するマクロ名など）をここに書く\n`,
+        `# LocalAgents.md\n\n- ${path.basename(toolFile)} から取り込んだツール\n- 画面のシートの構成（どのシートの何のセルに何があるか、ボタンに登録するマクロ名など）をここに書く\n`,
       );
     }
-    // 取り込むブック自身も #tree に載るよう、先に保存してからツリーを取る
-    await book.save(bookAbs);
-    applyTreeToBook(book, await computeTree(root, ctx.ig), await readRootAgents(root), await readLocalAgents(dirAbs));
-    book.writeLines(REFS_SHEET, renderRefs(res.references ?? []));
-    for (const s of conv.sheets) book.writeLines(s.name, s.lines);
-    await book.save(bookAbs);
-
-    const bs = bookState(ctx.state, ref.rel);
-    bs.files = {};
-    delete bs.outputHash;
-    await saveState(root, ctx.state);
-    return { book: ref.rel, sheets: conv.sheets.map((s) => s.name), skipped };
+    // 画面・データのシートを持つブックをもとに、ソースコードをシートとして取り込む
+    const made = await createBook(root, dirAbs, { base });
+    return { ...made, skipped: [...notes, ...made.skipped] };
   } finally {
     await rm(work, { recursive: true, force: true });
   }

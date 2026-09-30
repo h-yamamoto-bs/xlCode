@@ -117,31 +117,32 @@ xlCode はブックを部分的に書き換える（変更したコードのシ�
 
 | # | 手順 | 期待する結果 | 結果 |
 |---|---|---|---|
-| 11-1 | 新しいフォルダを開き、最初のブックを作るときに「VBA」を選ぶ | `<フォルダ名>.xlcode.xlsx` ができ、`Module1.bas`・`Agents.md`（VBA 用）・`LocalAgents.md` のシートがある。Sync ボタンが無い | |
-| 11-2 | 編集用ブックに UI シート（ボタン・図形・入力規則・条件付き書式）と `Module1.bas`（`Sub Hello(): MsgBox "こんにちは": End Sub`）を作り、ボタンに `Hello` を登録して保存 → Build | プロジェクトのフォルダに `<フォルダ名>.xlsm` ができる。拡張子付きのシートは無く、UI シートはそのまま | |
+| 11-1 | 新しいフォルダを開き、最初のブックを作るときに「VBA」→「空のブックを作成」 | フォルダに `Module1.bas`・`References.refs`（Shift_JIS・CRLF）ができ、編集用ブックにシートとして入る。`.gitignore` に `*.xlsm` が入る | |
+| 11-2 | 編集用ブックに画面のシート（ボタン・図形・入力規則・条件付き書式）と `Module1.bas`（`Sub Hello(): MsgBox "こんにちは": End Sub`）を作り、ボタンに `Hello` を登録して保存 → Build | `Module1.bas` のファイルが更新され、`<フォルダ名>.xlsm` ができる。拡張子付きのシートは無く、画面のシートはそのまま | |
 | 11-3 | できた .xlsm を開いてボタンを押す | 「こんにちは」が出る（日本語が化けない） | |
-| 11-4 | `Class1.cls`・`ThisWorkbook.cls`（`Workbook_Open`）・`<UI シート名>.cls`（`Worksheet_Change`）を作って Build | VBE でそれぞれ クラスモジュール・ThisWorkbook・そのシートのコードに入っている。イベントが動く | |
+| 11-4 | `Class1.cls`・`ThisWorkbook.cls`（`Workbook_Open`）・`<画面のシート名>.cls`（`Worksheet_Change`）を作って Build | VBE でそれぞれ クラスモジュール・ThisWorkbook・そのシートのコードに入っている。イベントが動く | |
 | 11-5 | `UserForm1.frm` を Agents.md の例のとおり書き、`Module1.bas` に `Sub ShowForm(): UserForm1.Show: End Sub` を足して Build → 実行 | フォームが表示され、配置・Caption が書いたとおり。ボタンのイベントが動く | |
 | 11-6 | フォームで Frame の中の OptionButton、MultiPage と Page、`Font.Size`、`BackColor = &H8000000F&` を使う | 書いたとおりに表示される | |
-| 11-7 | フォームで存在しないプロパティ名（`Foo = 1`）を書いて Build | 「UserForm1.frm N 行目（Foo）: …」のエラーになり、.xlsm は変わらない | |
-| 11-8 | 「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」を外して Build | 設定方法の案内付きのエラー。.xlsm・控えは変わらない | |
+| 11-7 | フォームで存在しないプロパティ名（`Foo = 1`）を書いて Build | 「UserForm1.frm N 行目（Foo）: …」のエラー。ソースは出力され、.xlsm は変わらない | |
+| 11-8 | 「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」を外して Build | 設定方法の案内付きのエラー。.xlsm は変わらない | |
 | 11-9 | 自分でデスクトップ版 Excel を開いた状態（別のブック）で Build | 開いている Excel に影響しない（画面に何も出ない）。Build 後にタスク マネージャーに EXCEL.EXE が増えたまま残らない | |
 | 11-10 | ビルド結果の .xlsm を Excel で開いたまま Build | 「開かれています」で止まる | |
 | 11-11 | ビルド結果にデータを入力して保存 → Build | 「前回の Build の後に変更されています」の確認。続行すると `.xlcode/backup/` に元のファイルが残る | |
-| 11-12 | `vba/` の控え | `Module1.bas`・`Class1.cls` が Shift_JIS・CRLF。VBE の「ファイルのインポート」で取り込める。Git に履歴が残る | |
-| 11-13 | 編集用ブックを OneDrive 上に置き、Web 版で Copilot にモジュールを追加させてから Build | Web 版で開いたままでも Build できる（編集用ブックには書き込まない）。追加したモジュールが .xlsm に入る | |
+| 11-12 | VS Code などで `Module1.bas` を直して Sync → Build | シートに反映され、.xlsm にも入る。Git に `.bas` の差分が見え、`.xlsm` は Git に入らない | |
+| 11-13 | シート名を `DEL_Module2.bas` にして Build | 確認の後、`Module2.bas` のファイルと .xlsm のモジュールが消える | |
 | 11-14 | Build にかかる時間 | 目安 10〜20 秒（Excel の起動を含む）。3 分を超えると中止して Excel を終了する | |
-| 11-15 | `#refs` に Microsoft Scripting Runtime を書き、`Dim d As New Scripting.Dictionary` を使うコードで Build → 実行 | VBE の参照設定にチェックが付いていて、コードが動く | |
-| 11-16 | `#refs` に存在しない GUID を書いて Build | 「参照設定「…」を追加できません」のエラー。.xlsm は変わらない | |
+| 11-15 | `References.refs` に Microsoft Scripting Runtime を書き、`Dim d As New Scripting.Dictionary` を使うコードで Build → 実行 | VBE の参照設定にチェックが付いていて、コードが動く | |
+| 11-16 | `References.refs` に存在しない GUID を書いて Build | 「参照設定「…」を追加できません」のエラー。.xlsm は変わらない | |
+| 11-17 | メールで送った .xlsm を別の PC で開く | マクロが止められた場合、README の手順（プロパティ →「許可する」）で動く | |
 
 ## 12. 取り込み
 
 | # | 手順 | 期待する結果 | 結果 |
 |---|---|---|---|
-| 12-1 | VBA モードで ＋ →「既存の Excel ツールから作成…」→ 既存の .xlsm を選ぶ | 編集用ブックができる。画面のシート（ボタン・図形・書式）がそのまま。モジュールが `.bas` / `.cls` / `.frm` のシートになる。元の .xlsm は変わっていない | |
-| 12-2 | フォームのあるツールを取り込む | `.frm` のシートに配置が書き起こされている。Build した .xlsm のフォームが元と同じ見た目で動く | |
+| 12-1 | VBA モードで ＋ →「既存の Excel ツールから作成…」→ 既存の .xlsm を選ぶ | フォルダに `.bas` / `.cls` / `.frm` / `References.refs` ができ、編集用ブックに画面のシート（ボタン・図形・書式）とコードのシートが入る。元の .xlsm は変わっていない | |
+| 12-2 | フォームのあるツールを取り込む | `.frm` に配置が書き起こされている。Build した .xlsm のフォームが元と同じ見た目で動く | |
 | 12-3 | 画像付きのコントロール・RefEdit などを含むフォーム | 取り込めなかったものが出力パネルに「注意」として出る | |
-| 12-4 | 参照設定を使っているツール | `#refs` シートに参照設定が入り、Build した .xlsm でも参照設定が付いている | |
+| 12-4 | 参照設定を使っているツール | `References.refs` に参照設定が入り、Build した .xlsm でも参照設定が付いている | |
 | 12-5 | 取り込み元を Excel で開いたまま取り込む | 取り込める（コピーを開くため） | |
 | 12-6 | 取り込み元がビルド結果の場所（`<フォルダ名>.xlsm`）にある状態で Build | 上書きの確認が出て、元のファイルが `.xlcode/backup/` に残る | |
 | 12-7 | ソースコードモードで「ブック未作成のディレクトリ」の見出しの＋ | 全ディレクトリにブックができ、ファイルがシートとして取り込まれる | |

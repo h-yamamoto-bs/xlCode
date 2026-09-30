@@ -35,9 +35,7 @@ export type FileStatus =
   | 'source-deleted'
   | 'sheet-missing'
   | 'conflict'
-  | 'gone'
-  /** VBA モード: 前回 Build したシートが無くなった（次の Build でモジュールを削除） */
-  | 'removed';
+  | 'gone';
 
 export interface FileEntry {
   name: string;

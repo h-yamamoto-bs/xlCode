@@ -3,8 +3,7 @@ import { defaultFormat, formatLabel } from './encoding';
 import { bookRef, bookRootOf, openProject } from './project';
 import { parseTreeVersion } from './tree';
 import { scanBook, type FileStatus } from './scan';
-import { vbaFileStatus, vbaOutputInfo, type VbaBookInfo } from './vba';
-import { Book } from './workbook';
+import { modulesFromBook, vbaOutputInfo, type VbaBookInfo } from './vba';
 
 export interface BookStatus {
   book: string;
@@ -23,25 +22,22 @@ export interface BookStatus {
 export async function bookStatus(root: string, bookAbs: string): Promise<BookStatus> {
   const ctx = await openProject(root);
   const ref = bookRef(root, bookAbs, bookRootOf(root, ctx.config));
-  if (ctx.config.mode === 'vba') {
-    const book = await Book.load(ref.abs);
-    const { collect, files } = await vbaFileStatus(ctx, ref, book);
-    return {
-      book: ref.rel,
-      errors: collect.errors,
-      warnings: collect.warnings,
-      files,
-      conflictSheets: [],
-      deletes: [],
-      treeVersion: book.hasSheet(TREE_SHEET) ? parseTreeVersion(book.readSheet(TREE_SHEET).lines[0]) : null,
-      vba: await vbaOutputInfo(ctx, ref),
-    };
-  }
   const scan = await scanBook(ctx, ref);
+  const errors = [...scan.errors];
+  const warnings = [...scan.warnings];
+  let vba: VbaBookInfo | undefined;
+  if (ctx.config.mode === 'vba') {
+    // フォームの書き方などの間違いを、Build の前に知らせる
+    const m = modulesFromBook(scan.book, ctx.config.extraCodeNames);
+    errors.push(...m.errors);
+    warnings.push(...m.warnings);
+    vba = await vbaOutputInfo(ctx, ref);
+  }
   return {
     book: ref.rel,
-    errors: scan.errors,
-    warnings: scan.warnings,
+    errors,
+    warnings,
+    vba,
     files: scan.entries
       .filter((e) => e.status !== 'gone')
       .map((e) => ({ name: e.name, status: e.status, format: formatLabel(e.format ?? defaultFormat(e.name)) })),
