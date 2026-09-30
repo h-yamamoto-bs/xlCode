@@ -25,6 +25,10 @@ import {
   saveConfig,
   sync,
   undoLast,
+  vbaBuild,
+  vbaOutputPath,
+  createBookFromTool,
+  TOOL_EXTENSIONS,
   type XlcodeConfig,
 } from '../core';
 import { atomicWrite } from '../core/atomic';
@@ -32,6 +36,7 @@ import { excelPathError, isBookFile, isIgnored, toPosixRel } from '../core/fsuti
 import { exists } from '../core/project';
 import type { BookSummary, OpenVia, ProjectInfo, Result } from '../shared/api';
 import { joinUrl, readSyncRoots, toWebUrl } from './onedrive';
+import { runImportJob, runVbaJob } from './excelCom';
 import { bookStamp, querySyncStatus } from './syncStatus';
 
 async function wrap<T>(fn: () => Promise<T>): Promise<Result<T>> {
@@ -113,6 +118,8 @@ async function loadProject(root: string): Promise<ProjectInfo> {
     hasAgents,
     dirsWithoutBook: await dirsWithoutBook(root, bookRoot),
     bookRoot: config.bookRoot ? bookRoot : null,
+    mode: config.mode ?? 'source',
+    modeSet: config.mode !== undefined,
   };
 }
 
@@ -162,10 +169,57 @@ export function registerIpc(): void {
     wrap(() => createBook(root, inside(root, dirRel))),
   );
   ipcMain.handle('build', (_e, root: string, book: string, opts) =>
-    wrap(async () => build(root, await bookAbsOf(root, book), opts)),
+    wrap(async () => {
+      const abs = await bookAbsOf(root, book);
+      if ((await loadConfig(root)).mode === 'vba') {
+        return vbaBuild(root, abs, opts, process.platform === 'win32' ? (job) => runVbaJob(job) : null);
+      }
+      return build(root, abs, opts);
+    }),
   );
   ipcMain.handle('sync', (_e, root: string, book: string, opts) =>
-    wrap(async () => sync(root, await bookAbsOf(root, book), opts)),
+    wrap(async () => {
+      if ((await loadConfig(root)).mode === 'vba') throw new Error('VBA モードには Sync はありません');
+      return sync(root, await bookAbsOf(root, book), opts);
+    }),
+  );
+  ipcMain.handle('pickToolFile', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)!;
+    const r = await dialog.showOpenDialog(win, {
+      title: '取り込む Excel ツール',
+      properties: ['openFile'],
+      filters: [{ name: 'Excel ブック', extensions: TOOL_EXTENSIONS }],
+    });
+    return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle('importTool', (_e, root: string, dirRel: string, file: string) =>
+    wrap(() =>
+      createBookFromTool(
+        root,
+        inside(root, dirRel),
+        file,
+        process.platform === 'win32' ? (job) => runImportJob(job) : null,
+      ),
+    ),
+  );
+  ipcMain.handle('setProjectMode', (_e, root: string, mode: 'source' | 'vba') =>
+    wrap(async () => {
+      const config = await loadConfig(root);
+      if (config.mode !== undefined && config.mode !== mode) throw new Error('プロジェクトの種類は変更できません');
+      await saveConfig(root, { ...config, mode });
+    }),
+  );
+  ipcMain.handle('openOutput', (_e, root: string, book: string, reveal: boolean) =>
+    wrap(async () => {
+      const bookRoot = await bookRootFor(root);
+      const out = vbaOutputPath(bookRef(root, resolveBook(bookRoot, book), bookRoot));
+      if (!(await exists(out))) throw new Error(`まだ Build していません: ${out}`);
+      if (reveal) shell.showItemInFolder(out);
+      else {
+        const err = await shell.openPath(out);
+        if (err) throw new Error(err);
+      }
+    }),
   );
   ipcMain.handle('bookDiff', (_e, root: string, book: string) =>
     wrap(async () => bookDiff(root, await bookAbsOf(root, book))),

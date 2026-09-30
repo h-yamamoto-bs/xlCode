@@ -6,6 +6,7 @@ import type {
   GitSummary,
   OpResult,
   RefreshResult,
+  ProjectMode,
   RelocateResult,
   SyncOptions,
   UndoResult,
@@ -68,6 +69,10 @@ export interface ProjectInfo {
   dirsWithoutBook: string[];
   /** ブックの置き場所（設定されていれば絶対パス。null ならソースの中） */
   bookRoot: string | null;
+  /** プロジェクトの種類 */
+  mode: ProjectMode;
+  /** 種類が設定済みか（未設定のまま最初のブックを作るときに選ぶ） */
+  modeSet: boolean;
 }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -103,4 +108,12 @@ export interface XlcodeApi {
   /** Agents.md / LocalAgents.md のみ読み書きできる */
   readRuleFile(root: string, rel: string): Promise<Result<string | null>>;
   writeRuleFile(root: string, rel: string, text: string): Promise<Result<void>>;
+  /** プロジェクトの種類を決める（一度決めたら変えられない） */
+  setProjectMode(root: string, mode: ProjectMode): Promise<Result<void>>;
+  /** 取り込む Excel ツールを選ぶ */
+  pickToolFile(): Promise<string | null>;
+  /** 既存の Excel ツールから編集用ブックを作る（VBA モード） */
+  importTool(root: string, dirRel: string, file: string): Promise<Result<CreateBookResult>>;
+  /** VBA モードのビルド結果（.xlsm）を開く。reveal ならフォルダで表示 */
+  openOutput(root: string, bookRel: string, reveal: boolean): Promise<Result<void>>;
 }

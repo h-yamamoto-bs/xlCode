@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Confirmation, OpResult } from '../../core';
+import type { Confirmation, OpResult, ProjectMode } from '../../core';
 import type { ExcelMode, OpenVia, ProjectInfo, SyncReport } from '../../shared/api';
 import { api, storageGet, storageSet, unwrap } from './api';
 import { ACTION_LABEL, BookView, type LastResult } from './components/BookView';
@@ -186,7 +186,7 @@ export function App() {
 
   const askConfirmations = useCallback(
     async (label: string, cs: Confirmation[]): Promise<boolean> => {
-      const danger = cs.some((c) => c.kind === 'delete' || c.kind === 'shrink');
+      const danger = cs.some((c) => c.kind === 'delete' || c.kind === 'shrink' || c.kind === 'overwrite');
       const { value } = await ask({
         title: `${label} の前に確認してください`,
         icon: 'warning',
@@ -194,7 +194,11 @@ export function App() {
           <div className="flex flex-col gap-3">
             {cs.map((c) => (
               <div key={c.kind}>
-                <div className={clsx(c.kind === 'shrink' || c.kind === 'delete' ? 'text-warn' : 'text-fg')}>
+                <div
+                  className={clsx(
+                    c.kind === 'shrink' || c.kind === 'delete' || c.kind === 'overwrite' ? 'text-warn' : 'text-fg',
+                  )}
+                >
                   {c.message}
                 </div>
                 {c.files.length > 0 && (
@@ -636,44 +640,221 @@ export function App() {
     [withBusy, ask, project, root, log],
   );
 
+  /** プロジェクトの種類を選ぶ（最初のブックを作るとき）。キャンセルなら null */
+  /**
+   * 最初のブックを作るときに、編集用ブックの置き場所を決める（Web 版・Copilot で開けるよう OneDrive を勧める）。
+   * 置き場所（未設定ならプロジェクトの中は null）を返す。キャンセルなら undefined
+   */
+  const chooseBookRoot = useCallback(async (): Promise<string | null | undefined> => {
+    if (!project || project.books.length > 0 || project.bookRoot) return project?.bookRoot ?? null;
+    const { value } = await ask<'onedrive' | 'inside' | null>({
+      title: '編集用ブックをどこに置きますか？',
+      icon: 'info',
+      body: (
+        <div className="flex flex-col gap-2">
+          <p>
+            Web 版の Excel と Copilot で開けるよう、
+            <span className="text-fg">OneDrive の中の、このプロジェクト専用のフォルダ</span>
+            をおすすめします（ソースコード・Git はこのままプロジェクトのフォルダに置きます）。
+          </p>
+          <p className="text-[12px] text-muted">
+            例: OneDrive\xlCode\{project.name}
+            （フォルダの選択画面で新しく作れます）。あとから設定画面で変えることもできます。
+          </p>
+        </div>
+      ),
+      buttons: [
+        { label: 'OneDrive のフォルダを選ぶ…', value: 'onedrive', variant: 'primary' },
+        { label: 'プロジェクトの中に置く', value: 'inside' },
+        { label: 'キャンセル', value: null },
+      ],
+      cancelValue: null,
+    });
+    if (!value) return undefined;
+    if (value === 'inside') return null;
+    const dir = await api.pickFolder(`編集用ブックの置き場所（OneDrive の中の「${project.name}」専用のフォルダ）`);
+    if (!dir) return undefined;
+    const r = await unwrap(api.relocateBooks(root!, dir));
+    log('info', `編集用ブックの置き場所: ${r.bookRoot}`);
+    setSettingsKey((k) => k + 1);
+    return r.bookRoot;
+  }, [ask, project, root, log]);
+
+  const chooseMode = useCallback(async (): Promise<ProjectMode | null> => {
+    const { value } = await ask<ProjectMode | null>({
+      title: 'プロジェクトの種類を選んでください',
+      icon: 'info',
+      body: (
+        <div className="flex flex-col gap-3">
+          <div>
+            <div className="text-fg">ソースコード</div>
+            <div className="text-[12px] text-muted">
+              シートをソースコードのファイルとして書き出します（Build / Sync）。1 シート = 1 ファイル。
+            </div>
+          </div>
+          <div>
+            <div className="text-fg">VBA</div>
+            <div className="text-[12px] text-muted">
+              UI・データのシートと、.bas / .cls / .frm のシートを 1 冊で編集します。Build
+              すると、拡張子付きのシートを除き VBA を書き込んだ .xlsm をプロジェクトのフォルダに作ります。Windows
+              のデスクトップ版 Excel と「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」の設定が必要です。
+            </div>
+          </div>
+          <div className="text-[12px] text-faint">あとから変えることはできません。</div>
+        </div>
+      ),
+      buttons: [
+        { label: 'ソースコード', value: 'source', variant: 'primary' },
+        { label: 'VBA', value: 'vba', variant: 'primary' },
+        { label: 'キャンセル', value: null },
+      ],
+      cancelValue: null,
+    });
+    return value;
+  }, [ask]);
+
   const onCreateBook = useCallback(
     (dirRel: string) =>
       withBusy('ブック作成中', async () => {
         const name = (dirRel.split('/').pop() || project?.name) ?? '';
-        const { value } = await ask({
+        let pmode = project?.mode ?? 'source';
+        if (project && !project.modeSet) {
+          const chosen = await chooseMode();
+          if (!chosen) return;
+          await unwrap(api.setProjectMode(root!, chosen));
+          log('info', `プロジェクトの種類: ${chosen === 'vba' ? 'VBA' : 'ソースコード'}`);
+          pmode = chosen;
+        }
+        const bookRoot = await chooseBookRoot();
+        if (bookRoot === undefined) return;
+        const bookPath = `${bookRoot ? `${bookRoot}/` : ''}${dirRel ? `${dirRel}/` : ''}${name}.xlcode.xlsx`;
+        const { value } = await ask<'empty' | 'tool' | null>({
           title: 'ブックを作成しますか？',
           icon: 'info',
           body: (
             <>
               <p>
-                <span className="font-mono break-all">
-                  {project?.bookRoot ? `${project.bookRoot}/` : ''}
-                  {dirRel ? `${dirRel}/` : ''}
-                  {name}.xlcode.xlsx
-                </span>{' '}
-                を作成し、{dirRel || 'ルート'} のファイルをシートとして取り込みます。
+                <span className="font-mono break-all">{bookPath}</span> を作成します。
               </p>
+              {pmode === 'vba' ? (
+                <ul className="mt-2 list-disc pl-5">
+                  <li>
+                    <span className="text-fg">既存の Excel ツールから作成</span>
+                    ：.xlsm などを選ぶと、シート（画面・データ）はそのまま、VBA
+                    のモジュール・フォーム・参照設定をシートにして取り込みます。元のファイルは変更しません（Windows
+                    のデスクトップ版 Excel が必要）。
+                  </li>
+                  <li>
+                    <span className="text-fg">空のブックを作成</span>：{dirRel ? `${dirRel}/` : ''}vba/
+                    に控えがあれば、そのコードをシートにします。
+                  </li>
+                  <li>
+                    Build 結果は {dirRel ? `${dirRel}/` : ''}
+                    {name}.xlsm です。
+                  </li>
+                </ul>
+              ) : (
+                <p className="mt-2">{dirRel || 'ルート'} のファイルをシートとして取り込みます。</p>
+              )}
               <p className="mt-2 text-muted">
                 あわせて .gitignore に xlCode 用の除外（*.xlcode.xlsx, ~$*,
                 .xlcode/）を追記し、Agents.md・LocalAgents.md が無ければ雛形を作成します。
               </p>
             </>
           ),
+          buttons:
+            pmode === 'vba'
+              ? [
+                  { label: '既存の Excel ツールから作成…', value: 'tool', variant: 'primary' },
+                  { label: '空のブックを作成', value: 'empty' },
+                  { label: 'キャンセル', value: null },
+                ]
+              : [
+                  { label: '作成', value: 'empty', variant: 'primary' },
+                  { label: 'キャンセル', value: null },
+                ],
+          cancelValue: null,
+        });
+        if (!value) return;
+        let tool: string | null = null;
+        if (value === 'tool') {
+          tool = await api.pickToolFile();
+          if (!tool) return;
+        }
+        for (const l of await unwrap(api.initProject(root!))) log('info', `  ${l}`);
+        if (tool) {
+          setBusy('Excel ツールを取り込み中（画面に出ない Excel を使います）');
+          log('info', `取り込み開始: ${tool}`);
+        }
+        const r = await unwrap(tool ? api.importTool(root!, dirRel, tool) : api.createBook(root!, dirRel));
+        log(
+          'success',
+          `ブックを作成しました: ${r.book}（${r.sheets.length} シート${tool ? '：' + r.sheets.join(', ') : ''}）`,
+        );
+        for (const s of r.skipped) log('warning', `  ${tool ? '注意' : 'スキップ'}: ${s}`);
+        if (tool)
+          log(
+            'info',
+            '  取り込んだ内容を確認してから Build してください（最初の Build では、既存の .xlsm を上書きする確認が出ます）',
+          );
+        if (r.skipped.length > 0) setPanelOpen(true);
+        setSelected(r.book);
+        setView('books');
+      }),
+    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot],
+  );
+
+  /** ブックの無いディレクトリすべてにブックを作る（ソースコードモード） */
+  const onCreateAll = useCallback(
+    () =>
+      withBusy('ブック作成中', async () => {
+        const dirs = project?.dirsWithoutBook ?? [];
+        if (!project || dirs.length === 0) return;
+        if (!project.modeSet) {
+          const chosen = await chooseMode();
+          if (!chosen) return;
+          await unwrap(api.setProjectMode(root!, chosen));
+          if (chosen === 'vba') {
+            log('info', 'プロジェクトの種類: VBA（ブックは 1 つずつ作成してください）');
+            return;
+          }
+        }
+        if ((await chooseBookRoot()) === undefined) return;
+        const { value } = await ask({
+          title: `${dirs.length} 個のディレクトリにブックを作成しますか？`,
+          icon: 'info',
+          body: (
+            <>
+              <p>それぞれのディレクトリのファイルを、シートとして取り込みます。</p>
+              <ul className="mt-2 max-h-[40vh] overflow-auto rounded-[3px] border border-line bg-editor px-3 py-1.5 font-mono text-[12px]">
+                {dirs.map((d) => (
+                  <li key={d}>{d || `${project.name}（ルート）`}</li>
+                ))}
+              </ul>
+            </>
+          ),
           buttons: [
-            { label: '作成', value: true, variant: 'primary' },
+            { label: 'すべて作成', value: true, variant: 'primary' },
             { label: 'キャンセル', value: false },
           ],
           cancelValue: false,
         });
         if (!value) return;
         for (const l of await unwrap(api.initProject(root!))) log('info', `  ${l}`);
-        const r = await unwrap(api.createBook(root!, dirRel));
-        log('success', `ブックを作成しました: ${r.book}（${r.sheets.length} シート）`);
-        for (const s of r.skipped) log('warning', `  スキップ: ${s}`);
-        setSelected(r.book);
-        setView('books');
+        let made = 0;
+        for (const d of dirs) {
+          const r = await api.createBook(root!, d);
+          if (!r.ok) {
+            log('error', `  ${d || 'ルート'}: ${r.error}`);
+            continue;
+          }
+          made++;
+          log('info', `  作成: ${r.value.book}（${r.value.sheets.length} シート）`);
+          for (const s of r.value.skipped) log('warning', `    スキップ: ${s}`);
+        }
+        log(made === dirs.length ? 'success' : 'warning', `ブックを ${made} / ${dirs.length} 冊作成しました`);
       }),
-    [withBusy, ask, root, project, log],
+    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot],
   );
 
   const openProject = useCallback(
@@ -937,6 +1118,7 @@ export function App() {
                 onRefreshTree={() => onRefreshTree()}
                 onReload={() => withBusy('再読み込み中', async () => {})}
                 onCreateBook={onCreateBook}
+                onCreateAll={project.mode === 'vba' && project.modeSet ? undefined : () => void onCreateAll()}
               />
             ) : (
               <RulesList project={project} selected={ruleRel} drafts={drafts} onSelect={setRuleRel} />
@@ -1024,6 +1206,12 @@ export function App() {
                   void unwrap(api.revealInFolder(project.root, book.rel)).catch((e: Error) => log('error', e.message))
                 }
                 onRefreshTree={() => void onRefreshTree()}
+                projectMode={project.mode}
+                onOpenOutput={(reveal) =>
+                  void unwrap(api.openOutput(project.root, book.rel, reveal)).catch((e: Error) =>
+                    log('error', e.message),
+                  )
+                }
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-muted">

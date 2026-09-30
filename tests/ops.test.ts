@@ -103,8 +103,8 @@ describe('Build', () => {
 
   it('数値に変換されたセルはエラーで中断する', async () => {
     const f = await setup();
-    await f.editBook(BOOK, (b) => {
-      b.wb.getWorksheet('add.ts')!.getCell('A5').value = 42;
+    await f.saveAsExcel(BOOK, (wb) => {
+      wb.getWorksheet('add.ts')!.getCell('A5').value = 42;
     });
     const r = await build(f.root, f.file(BOOK), { confirmed: true });
     expect(r.status).toBe('error');

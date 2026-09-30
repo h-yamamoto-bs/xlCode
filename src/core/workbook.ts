@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import ExcelJS from 'exceljs';
 import { atomicWrite } from './atomic';
+import { escapeCell, hasLoneSurrogate } from './cellEscape';
 import { MAX_CELL_CHARS } from './constants';
+import { patchXlsx, type PatchOp } from './xlsxPatch';
+
+export { escapeCell, hasLoneSurrogate } from './cellEscape';
 
 export interface CellIssue {
   row: number;
@@ -19,26 +23,6 @@ export interface SheetData {
 }
 
 const CODE_FONT = { name: 'Consolas', size: 10 };
-
-/**
- * xlsx（XML）に保存できる形へ変換する。読み込み時は ExcelJS が元に戻す。
- * - 文字列中の「_xHHHH_」は xlsx では文字コードとして解釈されるため、先頭の「_」を _x005F_ にする
- * - XML に書けない制御文字は _xHHHH_ で表す（そのまま書くと読み込めないブックになる）
- */
-export function escapeCell(text: string): string {
-  return text
-    .replace(/_(x[0-9A-Fa-f]{4}_)/g, '_x005F_$1')
-    .replace(XML_INVALID, (c) => `_x${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}_`);
-}
-
-/** XML 1.0 に書けない文字（タブ・改行・復帰以外の制御文字など） */
-// eslint-disable-next-line no-control-regex
-const XML_INVALID = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
-
-/** 対になっていないサロゲート（壊れた UTF-16）を含むか。xlsx に保存できない */
-export function hasLoneSurrogate(text: string): boolean {
-  return /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
-}
 
 function cellText(value: ExcelJS.CellValue): { text: string; type?: string } {
   if (value === null || value === undefined) return { text: '' };
@@ -63,16 +47,25 @@ function cellText(value: ExcelJS.CellValue): { text: string; type?: string } {
 
 /** .xlcode.xlsx の読み書き。コードは A 列に 1行 = 1セルで格納する（3.6） */
 export class Book {
-  private constructor(readonly wb: ExcelJS.Workbook) {}
+  /** 読み込んだ時点（または最後に保存した時点）のファイルの中身。保存はこれを部分的に書き換える */
+  private source: Uint8Array | null;
+  /** 保存時に適用する変更（コードのシートの書き込み・削除・並べ替え） */
+  private ops: PatchOp[] = [];
+
+  private constructor(
+    readonly wb: ExcelJS.Workbook,
+    source: Uint8Array | null,
+  ) {
+    this.source = source;
+  }
 
   static create(): Book {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'xlCode';
-    return new Book(wb);
+    return new Book(wb, null);
   }
 
   static async load(file: string): Promise<Book> {
-    const wb = new ExcelJS.Workbook();
     // ExcelJS の readFile はパスの扱いが環境依存なので Buffer 経由で読む
     let buf: Buffer;
     try {
@@ -86,6 +79,12 @@ export class Book {
         { cause: e },
       );
     }
+    return Book.fromBuffer(buf, file);
+  }
+
+  /** 読み込み済みのファイルの中身から開く（file はエラー表示用） */
+  static async fromBuffer(buf: Uint8Array, file: string): Promise<Book> {
+    const wb = new ExcelJS.Workbook();
     try {
       await wb.xlsx.load(buf as unknown as ArrayBuffer);
     } catch (e) {
@@ -93,12 +92,30 @@ export class Book {
         cause: e,
       });
     }
-    return new Book(wb);
+    return new Book(wb, buf);
   }
 
+  /**
+   * 保存する。ブック全体を書き直すのではなく、変更したシートの XML だけを差し替える。
+   * UI 用シートの図形・ボタン・グラフや VBA は、そのまま残る。
+   */
   async save(file: string): Promise<void> {
-    const buf = await this.wb.xlsx.writeBuffer();
-    await atomicWrite(file, Buffer.from(buf as ArrayBuffer));
+    const base = this.source ?? new Uint8Array((await new ExcelJS.Workbook().xlsx.writeBuffer()) as ArrayBuffer);
+    const out = await patchXlsx(base, this.ops);
+    await atomicWrite(file, out);
+    this.source = out;
+    this.ops = [];
+  }
+
+  /** シートを先頭へ移動する */
+  moveToFront(name: string): void {
+    const sheets = this.wb.worksheets as unknown as { name: string; orderNo: number }[];
+    const ws = sheets.find((s) => s.name === name);
+    if (!ws) return;
+    const min = Math.min(...sheets.map((s) => s.orderNo));
+    if (ws.orderNo === min && sheets.filter((s) => s.orderNo === min).length === 1) return;
+    ws.orderNo = min - 1;
+    this.ops.push({ kind: 'front', name });
   }
 
   sheetNames(): string[] {
@@ -155,6 +172,7 @@ export class Book {
       ws.getColumn(1).width = 120;
     }
     const cols = [lines, ...columns];
+    this.ops.push({ kind: 'write', name, columns: cols.map((c) => [...c]) });
     for (let c = 1; c <= cols.length; c++) {
       const col = ws.getColumn(c);
       col.numFmt = '@';
@@ -166,7 +184,7 @@ export class Book {
       for (let c = 1; c <= cols.length; c++) {
         const cell = row.getCell(c);
         const v = cols[c - 1][r - 1];
-        cell.value = v === undefined || v === '' ? null : escapeCell(v);
+        cell.value = v === undefined || v === '' ? null : v;
         cell.numFmt = '@';
         cell.font = CODE_FONT;
       }
@@ -175,6 +193,8 @@ export class Book {
 
   deleteSheet(name: string): void {
     const ws = this.wb.getWorksheet(name);
-    if (ws) this.wb.removeWorksheet(ws.id);
+    if (!ws) return;
+    this.wb.removeWorksheet(ws.id);
+    this.ops.push({ kind: 'delete', name });
   }
 }

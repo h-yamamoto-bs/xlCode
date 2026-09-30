@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { normalizeText, linesToText, textToLines } from '../src/core/normalize';
 import { classifySheet, validateFileName } from '../src/core/sheetName';
@@ -94,13 +95,14 @@ describe('ブックの往復（Excel の自動変換対策）', () => {
   });
   it('数値・真偽値に変換されたセルを検出する', async () => {
     const file = path.join(await mkdtemp(path.join(tmpdir(), 'xlb-')), 'x.xlsx');
-    const b = Book.create();
-    const ws = b.wb.addWorksheet('a.ts');
+    // Excel がセルを数値などに変えて保存した状態を再現する
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('a.ts');
     ws.getCell('A1').value = 'ok';
     ws.getCell('A2').value = 7;
     ws.getCell('A3').value = true;
     ws.getCell('A4').value = { formula: 'SUM(1,2)' } as never;
-    await b.save(file);
+    await wb.xlsx.writeFile(file);
     const data = (await Book.load(file)).readSheet('a.ts');
     expect(data.issues.map((i) => [i.row, i.type])).toEqual([
       [2, 'number'],

@@ -1,23 +1,25 @@
-# xlCode インストーラー（1.0.0 preview 1）
+# xlCode インストーラー（1.3.1 preview 5）
 
 GitHub の 1 ファイル 100MB 制限のため 2 つに分割している。**Windows 上での動作はまだ確認していない。**
 
 ## 使い方
 
 1. このフォルダを取得する（`git clone` か「Code → Download ZIP」）
-2. `join.bat` をダブルクリック → `xlCode-Setup-1.0.0.exe` ができる
-3. `xlCode-Setup-1.0.0.exe` を実行して、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
+2. `join.bat` をダブルクリック → `xlCode-Setup-1.3.1.exe` ができる
+3. `xlCode-Setup-1.3.1.exe` を実行して、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
 4. スタートメニュー・デスクトップの xlCode から起動
+
+以前のバージョンを入れている場合は、そのまま上書きでインストールできる。
 
 署名がないため SmartScreen の警告が出る場合は「詳細情報 → 実行」。
 
 ## 確認用
 
-作られるソース: コミット 1401ab0（main）
+作られるソース: コミット d6bf3b0（main。VBA モードはソースコード経由・取り込み・参照設定を含む）
 
-xlCode-Setup-1.0.0.exe の SHA-256:
-`4dbb849f95ef6fe26c5f09fc8cbd43925a849975639ac314abab116eee377823`
+xlCode-Setup-1.3.1.exe の SHA-256:
+`500a0e8451256abd36295d387d420244a25fb2a46a09b027753c3465cc50bf20`
 
-Windows では `certutil -hashfile xlCode-Setup-1.0.0.exe SHA256` で確認できる。
+Windows では `certutil -hashfile xlCode-Setup-1.3.1.exe SHA256` で確認できる。
 
-確認してほしい項目は [docs/windows-checklist.md](../../docs/windows-checklist.md)（特に 6・1-4・7）。
+確認してほしい項目は [docs/windows-checklist.md](../../docs/windows-checklist.md)（特に 6・1-4・7・10・11・12）。

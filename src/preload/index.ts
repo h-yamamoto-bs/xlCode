@@ -29,6 +29,10 @@ const api: XlcodeApi = {
   revealInFolder: call('revealInFolder') as XlcodeApi['revealInFolder'],
   readRuleFile: call('readRuleFile') as XlcodeApi['readRuleFile'],
   writeRuleFile: call('writeRuleFile') as XlcodeApi['writeRuleFile'],
+  setProjectMode: call('setProjectMode') as XlcodeApi['setProjectMode'],
+  openOutput: call('openOutput') as XlcodeApi['openOutput'],
+  pickToolFile: call('pickToolFile') as XlcodeApi['pickToolFile'],
+  importTool: call('importTool') as XlcodeApi['importTool'],
 };
 
 contextBridge.exposeInMainWorld('xlcode', api);

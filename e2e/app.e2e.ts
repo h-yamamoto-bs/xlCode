@@ -200,6 +200,89 @@ describe('ブックの置き場所', () => {
     await waitLog(win, 'Build: 完了');
     expect(await f.read('app/util.ts')).toBe('export const one = 1;\nexport const moved = 2;\n');
   });
+
+  it('最初のブックを作るときにプロジェクトの種類を選び、VBA ならソースと .xlsm の案内が出る', async () => {
+    const { fixture } = await import('../tests/helpers');
+    const f = await fixture({ 'README.txt': 'ツール\n' }, { git: true });
+    running = await launch(f.root);
+    const { win } = running;
+    await win.getByTitle('ルート にブックを作成').click();
+    await win.getByText('プロジェクトの種類を選んでください').waitFor();
+    await win.getByRole('button', { name: 'VBA', exact: true }).click();
+    await win.getByRole('button', { name: 'プロジェクトの中に置く' }).click();
+    await win.getByText(/Build 結果は .*\.xlsm です/).waitFor();
+    await win.getByRole('button', { name: '空のブックを作成', exact: true }).click();
+    await waitLog(win, /ブックを作成しました/);
+    const path = await import('node:path');
+    const name = path.basename(f.root);
+    await win.getByText('まだ Build していません', { exact: false }).waitFor();
+    await expect(win.getByRole('button', { name: 'Sync', exact: true }).count()).resolves.toBe(1);
+    await expect(win.getByText('Module1.bas').first().isVisible()).resolves.toBe(true);
+    expect(await f.read('Agents.md')).toContain('Begin UserForm');
+    const { readdir } = await import('node:fs/promises');
+    expect(await readdir(f.root)).toEqual(expect.arrayContaining(['Module1.bas', 'References.refs']));
+
+    // この環境（Windows 以外）では Excel が無いため、エラーになる
+    await win.getByRole('button', { name: 'Build', exact: true }).click();
+    await win.getByRole('button', { name: '閉じたので続行' }).click();
+    await waitLog(win, /Windows とデスクトップ版 Excel が必要です/);
+    expect(await readdir(f.root)).not.toContain(`${name}.xlsm`);
+  });
+
+  it('VBA: 既存の Excel ツールから作成を選ぶと、ファイルを選んで取り込む（Windows 以外ではエラー）', async () => {
+    const { fixture } = await import('../tests/helpers');
+    const { saveConfig } = await import('../src/core');
+    const { DEFAULT_CONFIG } = await import('../src/core/config');
+    const f = await fixture({ 'tool.xlsm': 'x' }, { git: true });
+    await saveConfig(f.root, { ...DEFAULT_CONFIG, mode: 'vba' });
+    running = await launch(f.root);
+    const { app, win } = running;
+    await app.evaluate(({ dialog }, file) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [file] })) as typeof dialog.showOpenDialog;
+    }, f.file('tool.xlsm'));
+    await win.getByTitle('ルート にブックを作成').click();
+    await win.getByRole('button', { name: 'プロジェクトの中に置く' }).click();
+    await win.getByRole('button', { name: '既存の Excel ツールから作成…' }).click();
+    await waitLog(win, /Windows とデスクトップ版 Excel が必要です/);
+  });
+
+  it('ソースコード: すべてのディレクトリにまとめてブックを作成する', async () => {
+    const { fixture } = await import('../tests/helpers');
+    const f = await fixture({ 'a/x.ts': 'export const x = 1;\n', 'b/y.ts': 'export const y = 1;\n' }, { git: true });
+    running = await launch(f.root);
+    const { win } = running;
+    await win.getByTitle('すべてのディレクトリにブックを作成').click();
+    await win.getByRole('button', { name: 'ソースコード', exact: true }).click();
+    await win.getByRole('button', { name: 'プロジェクトの中に置く' }).click();
+    await win.getByText('3 個のディレクトリにブックを作成しますか？').waitFor();
+    await win.getByRole('button', { name: 'すべて作成' }).click();
+    await waitLog(win, 'ブックを 3 / 3 冊作成しました');
+    expect((await f.sheet('a/a.xlcode.xlsx', 'x.ts'))[0]).toBe('export const x = 1;');
+  });
+
+  it('最初のブックを作るときに OneDrive のフォルダを選ぶと、編集用ブックはそこに作られる', async () => {
+    const { fixture } = await import('../tests/helpers');
+    const { mkdtemp, readdir } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const f = await fixture({ 'a.ts': 'export const a = 1;\n' }, { git: true });
+    const onedrive = await mkdtemp(path.join(tmpdir(), 'onedrive-'));
+    running = await launch(f.root);
+    const { app, win } = running;
+    await app.evaluate(({ dialog }, dir) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [dir] })) as typeof dialog.showOpenDialog;
+    }, onedrive);
+    await win.getByTitle('ルート にブックを作成').click();
+    await win.getByRole('button', { name: 'ソースコード', exact: true }).click();
+    await win.getByText('編集用ブックをどこに置きますか？').waitFor();
+    await win.getByRole('button', { name: 'OneDrive のフォルダを選ぶ…' }).click();
+    await win.getByText(onedrive, { exact: false }).first().waitFor();
+    await win.getByRole('button', { name: '作成', exact: true }).click();
+    await waitLog(win, /ブックを作成しました/);
+    const name = `${path.basename(f.root)}.xlcode.xlsx`;
+    expect(await readdir(onedrive)).toEqual([name]);
+    expect((await readdir(f.root)).filter((n) => n.endsWith('.xlsx'))).toEqual([]);
+  });
 });
 
 describe('迷わないための案内', () => {

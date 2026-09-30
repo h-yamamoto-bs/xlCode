@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useEffect, useState, type ReactNode } from 'react';
-import type { FileDiff, OpResult } from '../../../core';
+import type { FileDiff, OpResult, ProjectMode } from '../../../core';
 import type { BookSummary, BookSync, ExcelMode, OpenVia } from '../../../shared/api';
 import { api, unwrap } from '../api';
 import { nextAction, type Next } from '../next';
@@ -76,6 +76,9 @@ export const ACTION_LABEL: Record<string, string> = {
   'reformat-sheet': 'シート整形',
   'conflict-sheet': '衝突シート作成',
   commit: '自動コミット',
+  'write-module': 'VBA 書き込み',
+  'delete-module': 'VBA 削除',
+  backup: '上書き前のバックアップ',
 };
 
 /** 直前の操作の結果（画面に出して、何が起きたかをその場で示す） */
@@ -157,8 +160,13 @@ export function BookView({
   onTerminal,
   onReveal,
   onRefreshTree,
+  projectMode = 'source',
+  onOpenOutput,
 }: {
   root: string;
+  projectMode?: ProjectMode;
+  /** VBA モード: ビルド結果を開く（reveal ならフォルダで表示） */
+  onOpenOutput?: (reveal: boolean) => void;
   book: BookSummary;
   treeVersion: string;
   busy: boolean;
@@ -223,6 +231,9 @@ export function BookView({
   };
 
   const openPrimary = next.kind === 'open' || next.kind === 'refresh';
+  const vba = projectMode === 'vba';
+  const out = book.vba;
+  const outName = out?.output.split(/[\\/]/).pop();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -268,7 +279,11 @@ export function BookView({
           onClick={onBuild}
           disabled={disabled}
           aria-label="Build"
-          title={reason('Build: Excel 側の変更をソースコードへ出力する（エディタ側だけの変更はシートへ取り込む）')}
+          title={reason(
+            vba
+              ? 'Build: Excel 側の変更をソースコードへ出力し、VBA を書き込んだ .xlsm を作る'
+              : 'Build: Excel 側の変更をソースコードへ出力する（エディタ側だけの変更はシートへ取り込む）',
+          )}
         >
           <Icon.Build size={15} />
           Build
@@ -304,6 +319,16 @@ export function BookView({
           >
             <Icon.Undo size={15} />
             元に戻す
+          </Button>
+        )}
+        {vba && (
+          <Button
+            onClick={() => onOpenOutput?.(false)}
+            disabled={busy || !out?.exists}
+            title="ビルド結果の .xlsm をデスクトップ版 Excel で開く"
+          >
+            <Icon.Excel size={15} />
+            ビルド結果を開く
           </Button>
         )}
         <div className="mx-1 h-4 w-px bg-line" />
@@ -371,6 +396,28 @@ export function BookView({
               }
             >
               #tree が最新ではありません。Refresh Tree を実行してください。
+            </Banner>
+          )}
+          {vba && out && (
+            <Banner
+              kind={out.changed ? 'warning' : 'info'}
+              action={
+                out.exists && (
+                  <Button onClick={() => onOpenOutput?.(true)} disabled={busy} className="shrink-0">
+                    <Icon.Reveal size={14} />
+                    フォルダ
+                  </Button>
+                )
+              }
+            >
+              ビルド結果: <span className="font-mono break-all">{out.output}</span>
+              <div className="text-[12px] text-muted">
+                {!out.exists
+                  ? 'まだ Build していません。Build すると、シートをソースコードに書き出してから、画面のシートと VBA を入れた .xlsm を作ります。'
+                  : out.changed
+                    ? `${outName} が前回の Build の後に変更されています。次の Build で作り直すと、直接入力したデータや VBE で直したコードは失われます（元のファイルは .xlcode/backup に残します）。`
+                    : 'ビルド結果は Build のたびに作り直す「ひな形」です（Git 管理はしません）。実際に使うときはコピーして使ってください。'}
+              </div>
             </Banner>
           )}
           {(book.deletes?.length ?? 0) > 0 && (

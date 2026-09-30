@@ -25,7 +25,10 @@ export function Sidebar({
   onRefreshTree,
   onReload,
   onCreateBook,
+  onCreateAll,
 }: {
+  /** ブックの無いディレクトリすべてにブックを作る（ソースコードモード） */
+  onCreateAll?: () => void;
   project: ProjectInfo;
   selected: string | null;
   busy: boolean;
@@ -36,7 +39,8 @@ export function Sidebar({
   onCreateBook: (dirRel: string) => void;
 }) {
   const [openBooks, setOpenBooks] = useState(true);
-  const [openDirs, setOpenDirs] = useState(false);
+  // ブックが無いときは、作成先を選べるよう最初から開いておく
+  const [openDirs, setOpenDirs] = useState(project.books.length === 0);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   return (
@@ -152,7 +156,19 @@ export function Sidebar({
           })}
         </ul>
       </Section>
-      <Section title="ブック未作成のディレクトリ" open={openDirs} onToggle={() => setOpenDirs(!openDirs)}>
+      <Section
+        title="ブック未作成のディレクトリ"
+        open={openDirs}
+        onToggle={() => setOpenDirs(!openDirs)}
+        actions={
+          onCreateAll &&
+          project.dirsWithoutBook.length > 1 && (
+            <IconButton title="すべてのディレクトリにブックを作成" onClick={onCreateAll} disabled={busy}>
+              <Icon.Plus size={14} />
+            </IconButton>
+          )
+        }
+      >
         <ul className="max-h-[30vh] overflow-auto pb-1">
           {project.dirsWithoutBook.map((d) => (
             <li key={d} className="group flex h-[22px] items-center gap-1.5 pr-2 pl-5 hover:bg-hover">

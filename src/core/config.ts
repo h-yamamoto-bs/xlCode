@@ -3,7 +3,16 @@ import path from 'node:path';
 import { atomicWrite } from './atomic';
 import { CONFIG_FILE, XLCODE_DIR } from './constants';
 
+/**
+ * プロジェクトの種類（最初のブックを作るときに決める）
+ * - source: シートをソースコードのファイルとして書き出す
+ * - vba: .bas / .cls / .frm のシートを VBA として書き込んだ .xlsm を生成する
+ */
+export type ProjectMode = 'source' | 'vba';
+
 export interface XlcodeConfig {
+  /** 未設定なら source */
+  mode?: ProjectMode;
   /** 省略検知の閾値（0.3 = 30%以上の減少で警告） */
   shrinkThreshold: number;
   /** 省略検知の対象とする最小行数（前回の行数がこれ未満なら検知しない） */
@@ -24,6 +33,8 @@ export interface XlcodeConfig {
    * 未設定ならソースの各フォルダの中に置く。
    */
   bookRoot?: string;
+  /** 拡張子のないファイル名のうち、追加でコードとして扱うもの（Makefile などは既定で扱う） */
+  extraCodeNames?: string[];
 }
 
 export const DEFAULT_CONFIG: XlcodeConfig = {

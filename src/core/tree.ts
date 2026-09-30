@@ -62,20 +62,10 @@ export interface RefreshResult {
   partial: boolean;
 }
 
-/** ブックの #tree を先頭へ移動する */
-function moveToFront(book: Book, name: string): void {
-  // orderNo は ExcelJS の型定義に無いが、シートの並び順を決める内部プロパティ
-  const sheets = book.wb.worksheets as unknown as { name: string; orderNo: number }[];
-  const ws = sheets.find((s) => s.name === name);
-  if (!ws) return;
-  const min = Math.min(...sheets.map((s) => s.orderNo));
-  if (ws.orderNo !== min || sheets.filter((s) => s.orderNo === min).length > 1) ws.orderNo = min - 1;
-}
-
 /** #tree と Agents.md シートを書き込む（ブックの保存は呼び出し側） */
 export function applyTreeToBook(book: Book, tree: TreeSnapshot, agentsLines: string[] | null): void {
   book.writeLines(TREE_SHEET, [tree.header, ...tree.lines]);
-  moveToFront(book, TREE_SHEET);
+  book.moveToFront(TREE_SHEET);
   // No.21 暫定案: ルートの Agents.md を全ブックへ一方向配布する
   if (agentsLines) book.writeLines(AGENTS_SHEET, agentsLines);
 }

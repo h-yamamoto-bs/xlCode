@@ -1,12 +1,16 @@
-import { access, appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { AGENTS_SHEET, LOCAL_AGENTS_SHEET, XLCODE_DIR } from './constants';
+import { encodeFile } from './encoding';
 import { excelPathError, listSourceFiles, readTextFile } from './fsutil';
-import { textToLines } from './normalize';
+import { linesToText, textToLines } from './normalize';
 import { bookPathFor, bookRef, bookRootOf, booksInDir, openProject } from './project';
 import { bookState, saveState } from './state';
+import { loadConfig } from './config';
+import { REFS_FILE, VBA_GITIGNORE, vbaExt } from './vba';
+import { renderRefs } from './vbaRefs';
 import { applyTreeToBook, computeTree, readRootAgents } from './tree';
-import { validateFileName } from './sheetName';
+import { isCodeName, validateFileName } from './sheetName';
 import { Book } from './workbook';
 
 const GITIGNORE_ENTRIES = ['*.xlcode.xlsx', '~$*', `${XLCODE_DIR}/`];
@@ -25,6 +29,53 @@ const LOCAL_AGENTS_TEMPLATE = `# LocalAgents.md
 - このディレクトリ固有のルールを書く
 `;
 
+const VBA_AGENTS_TEMPLATE = `# Agents.md
+
+- VBA のコードを書く。1シート = 1モジュール。A列に1行ずつ書く
+- シート名はモジュール名＋拡張子（31文字以内）
+  - 標準モジュール: Module1.bas / クラスモジュール: Class1.cls / ユーザーフォーム: UserForm1.frm
+  - シートのイベント: 「シート名.cls」、ブックのイベント: ThisWorkbook.cls
+- 各モジュールの先頭に Option Explicit を書く。Attribute 行は書かない
+- 外部のライブラリ（Dictionary・正規表現・ADO など）は CreateObject で使う書き方をおすすめする
+  （例: \`Dim d As Object: Set d = CreateObject("Scripting.Dictionary")\`）
+  - 参照設定が必要な書き方（\`Dim d As New Scripting.Dictionary\`）をした場合は、References.refs シートに \`{GUID} 1.0 説明\` の行を足す
+- 拡張子のないシートは画面（UI）とデータ。指示が無い限り中身を変えない
+- モジュールを削除するときは、シート名の先頭に DEL_ を付ける（シートを消すだけでは削除されない）
+- 「#」で始まるシート、Agents.md シートは編集しない
+- ユーザーフォームは、先頭に配置を書き、その後にコードを書く
+
+\`\`\`vb
+Begin UserForm UserForm1
+   Caption = "顧客登録"
+   Width = 300
+   Height = 200
+   Begin TextBox txtName
+      Left = 80
+      Top = 12
+      Width = 150
+   End
+   Begin CommandButton btnOK
+      Caption = "登録"
+      Left = 150
+      Top = 150
+   End
+End
+
+Private Sub btnOK_Click()
+    MsgBox txtName.Value
+End Sub
+\`\`\`
+
+- 使えるコントロール: Label, TextBox, CommandButton, ComboBox, ListBox, CheckBox, OptionButton, ToggleButton, Frame, MultiPage（中に Page）, TabStrip, ScrollBar, SpinButton, Image
+- 値は 文字列 "…"・数値・True / False・&H8000000F& のように書く。定数名（fmBorderStyleSingle など）は数値で書く
+`;
+
+const VBA_LOCAL_AGENTS_TEMPLATE = `# LocalAgents.md
+
+- このツール固有のルールを書く
+- UI シートの構成（どのシートの何のセルに何があるか、ボタンに登録するマクロ名など）を書いておくと、Copilot が正しいコードを書きやすくなる
+`;
+
 async function exists(p: string): Promise<boolean> {
   try {
     await access(p);
@@ -41,9 +92,12 @@ async function exists(p: string): Promise<boolean> {
  */
 export async function initProject(root: string): Promise<string[]> {
   const done: string[] = [];
+  const vba = (await loadConfig(root)).mode === 'vba';
   const gi = path.join(root, '.gitignore');
   const current = (await readFile(gi, 'utf8').catch(() => '')).split(/\r?\n/).map((l) => l.trim());
-  const missing = GITIGNORE_ENTRIES.filter((e) => !current.includes(e));
+  // VBA モードでは、ビルド結果（.xlsm）を Git 管理しない
+  const entries = vba ? [...GITIGNORE_ENTRIES, VBA_GITIGNORE] : GITIGNORE_ENTRIES;
+  const missing = entries.filter((e) => !current.includes(e));
   if (missing.length > 0) {
     const prefix = current.join('') === '' || current[current.length - 1] === '' ? '' : '\n';
     await appendFile(gi, `${prefix}# xlCode\n${missing.join('\n')}\n`);
@@ -51,7 +105,7 @@ export async function initProject(root: string): Promise<string[]> {
   }
   const agents = path.join(root, AGENTS_SHEET);
   if (!(await exists(agents))) {
-    await writeFile(agents, AGENTS_TEMPLATE);
+    await writeFile(agents, vba ? VBA_AGENTS_TEMPLATE : AGENTS_TEMPLATE);
     done.push('Agents.md を作成');
   }
   return done;
@@ -63,8 +117,37 @@ export interface CreateBookResult {
   skipped: string[];
 }
 
+export interface CreateBookOptions {
+  /** もとにするブック（既存の Excel ツールから取り込むとき。画面・データのシートを持つ .xlsx） */
+  base?: Uint8Array;
+}
+
+/**
+ * VBA モードで、ソースのフォルダに VBA のファイルが無ければ雛形を置く。
+ * 参照設定のファイル（References.refs）は、無ければ必ず置く
+ */
+export async function writeVbaStarters(dirAbs: string): Promise<string[]> {
+  const made: string[] = [];
+  const sjis = (lines: string[], name: string) =>
+    encodeFile(linesToText(lines), { encoding: 'sjis', eol: 'crlf' }, name);
+  const names = await readdir(dirAbs);
+  if (!names.some((n) => vbaExt(n))) {
+    await writeFile(path.join(dirAbs, 'Module1.bas'), sjis(['Option Explicit'], 'Module1.bas'));
+    made.push('Module1.bas');
+  }
+  if (!names.some((n) => n.toLowerCase() === REFS_FILE.toLowerCase())) {
+    await writeFile(path.join(dirAbs, REFS_FILE), sjis(renderRefs([]), REFS_FILE));
+    made.push(REFS_FILE);
+  }
+  return made;
+}
+
 /** ディレクトリに <dir_name>.xlcode.xlsx を作成し、既存ファイルをシートとして取り込む */
-export async function createBook(root: string, dirAbs: string): Promise<CreateBookResult> {
+export async function createBook(
+  root: string,
+  dirAbs: string,
+  opts: CreateBookOptions = {},
+): Promise<CreateBookResult> {
   const ctx = await openProject(root);
   const bookRoot = bookRootOf(root, ctx.config);
   const bookAbs = bookPathFor(root, bookRoot, dirAbs);
@@ -75,20 +158,28 @@ export async function createBook(root: string, dirAbs: string): Promise<CreateBo
   await mkdir(path.dirname(bookAbs), { recursive: true });
   const ref = bookRef(root, bookAbs, bookRoot);
 
+  const vba = ctx.config.mode === 'vba';
   const localAgents = path.join(dirAbs, LOCAL_AGENTS_SHEET);
-  if (!(await exists(localAgents))) await writeFile(localAgents, LOCAL_AGENTS_TEMPLATE);
+  if (!(await exists(localAgents)))
+    await writeFile(localAgents, vba ? VBA_LOCAL_AGENTS_TEMPLATE : LOCAL_AGENTS_TEMPLATE);
 
-  // 作成するブック自身も #tree に載るよう、先に空のブックを保存してからツリーを取る
-  const book = Book.create();
+  if (vba) await writeVbaStarters(dirAbs);
+
+  // 作成するブック自身も #tree に載るよう、先に空のブック（取り込みではもとのブック）を保存してからツリーを取る
+  const book = opts.base ? await Book.fromBuffer(opts.base, bookAbs) : Book.create();
   await book.save(bookAbs);
-  applyTreeToBook(book, await computeTree(root, ctx.ig), await readRootAgents(root));
   const bs = bookState(ctx.state, ref.rel);
   const sheets: string[] = [];
   const skipped: string[] = [];
+  applyTreeToBook(book, await computeTree(root, ctx.ig), await readRootAgents(root));
   const files = await listSourceFiles(root, dirAbs, ctx.ig);
   // LocalAgents.md を先頭に
   files.sort((a, b) => Number(b.name === LOCAL_AGENTS_SHEET) - Number(a.name === LOCAL_AGENTS_SHEET));
   for (const f of files) {
+    if (!isCodeName(f.name, ctx.config.extraCodeNames)) {
+      skipped.push(`${f.name}（拡張子がないため対象外）`);
+      continue;
+    }
     const err = validateFileName(f.name);
     if (err) throw new Error(err);
     const read = await readTextFile(f.abs);

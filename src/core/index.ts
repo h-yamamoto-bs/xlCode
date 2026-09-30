@@ -14,3 +14,30 @@ export { gitSummary, type GitSummary } from './git';
 export { bookRef } from './project';
 export { relocateBooks, type RelocateResult } from './relocate';
 export { bookPathFor, bookRootOf, resolveBook } from './project';
+export type { ProjectMode } from './config';
+export {
+  vbaBuild,
+  vbaOutputPath,
+  VBA_KIND_LABEL,
+  VBOM_HELP,
+  type VbaBookInfo,
+  type VbaBuildOptions,
+  type VbaJob,
+  type VbaJobModule,
+  type VbaKind,
+  type VbaRunner,
+  type VbaRunResult,
+} from './vba';
+export type { FormDef, FormControl, FormProp } from './vbaForm';
+export {
+  createBookFromTool,
+  TOOL_EXTENSIONS,
+  type ImportJob,
+  type ImportResult,
+  type ImportedModule,
+  type ImportedControl,
+  type ImportedProp,
+  type ImportedForm,
+  type VbaImporter,
+} from './vbaImport';
+export type { VbaReference } from './vbaRefs';

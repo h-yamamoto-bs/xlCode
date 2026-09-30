@@ -9,7 +9,48 @@ import {
   TREE_SHEET,
 } from './constants';
 
-export type SheetKind = 'tree' | 'reserved' | 'conflict' | 'unknown-reserved' | 'agents' | 'delete' | 'code';
+export type SheetKind =
+  | 'tree'
+  | 'reserved'
+  | 'conflict'
+  | 'unknown-reserved'
+  | 'agents'
+  | 'delete'
+  | 'code'
+  /** コードではないシート（UI・データ表示など）。xlCode は一切触らない */
+  | 'other';
+
+/** 拡張子のないファイル名のうち、コードとして扱うもの（大文字小文字は区別しない） */
+export const EXTENSIONLESS_CODE_NAMES: readonly string[] = [
+  'Makefile',
+  'GNUmakefile',
+  'Dockerfile',
+  'Containerfile',
+  'Procfile',
+  'Gemfile',
+  'Rakefile',
+  'Brewfile',
+  'Pipfile',
+  'Jenkinsfile',
+  'Vagrantfile',
+  'Caddyfile',
+  'Justfile',
+  'LICENSE',
+  'README',
+  'CHANGELOG',
+  'CODEOWNERS',
+];
+
+/**
+ * コードのシート・ファイルとして扱う名前か。
+ * 拡張子がある（例: App.tsx, run.bat, .gitignore）か、拡張子のない決まった名前（Makefile など）。
+ * UI やデータ表示用のシート（例: 「UI」「データ」）はコードではない。
+ */
+export function isCodeName(name: string, extra: readonly string[] = []): boolean {
+  if (/\.[^.]+$/.test(name)) return true;
+  const n = name.toLowerCase();
+  return [...EXTENSIONLESS_CODE_NAMES, ...extra].some((x) => x.toLowerCase() === n);
+}
 
 export interface SheetInfo {
   kind: SheetKind;
@@ -17,14 +58,17 @@ export interface SheetInfo {
   fileName?: string;
 }
 
-export function classifySheet(name: string): SheetInfo {
+export function classifySheet(name: string, extraCodeNames: readonly string[] = []): SheetInfo {
   if (name === TREE_SHEET) return { kind: 'tree' };
   if (RESERVED_SHEETS.includes(name)) return { kind: 'reserved' };
   if (/^#conflict_\d+$/.test(name)) return { kind: 'conflict' };
   if (name.startsWith(CONFLICT_PREFIX) || name.startsWith(RESERVED_PREFIX)) return { kind: 'unknown-reserved' };
   if (name === AGENTS_SHEET) return { kind: 'agents' };
-  if (name.startsWith(DELETE_PREFIX)) return { kind: 'delete', fileName: name.slice(DELETE_PREFIX.length) };
-  return { kind: 'code', fileName: name };
+  if (name.startsWith(DELETE_PREFIX)) {
+    const fileName = name.slice(DELETE_PREFIX.length);
+    return isCodeName(fileName, extraCodeNames) ? { kind: 'delete', fileName } : { kind: 'other' };
+  }
+  return isCodeName(name, extraCodeNames) ? { kind: 'code', fileName: name } : { kind: 'other' };
 }
 
 /** ファイル名がシート名として使えるか検証する（2.3）。問題があればエラーメッセージを返す */

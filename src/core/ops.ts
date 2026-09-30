@@ -7,7 +7,7 @@ import { autoCommit, isGitRepo, uncommittedChanges } from './git';
 import { checkBookOpen } from './lock';
 import { textToLines } from './normalize';
 import { bookRef, bookRootOf, openProject, type BookRef, type ProjectContext } from './project';
-import { newResult, type OpResult } from './result';
+import { newResult, type Confirmation, type OpResult } from './result';
 import { scanBook, type FileEntry, type Scan } from './scan';
 import { bookState, saveState, type BookState } from './state';
 import { takeSnapshot } from './undo';
@@ -15,6 +15,8 @@ import { takeSnapshot } from './undo';
 export interface BuildOptions {
   /** 確認ダイアログでユーザーが続行を選んだ */
   confirmed?: boolean;
+  /** 呼び出し側（VBA モード）の確認事項。Build の確認と一緒に、何も書き込む前に出す */
+  extraConfirmations?: Confirmation[];
 }
 
 export interface SyncOptions {
@@ -236,6 +238,7 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
       files: scan.deletes.map((d) => d.fileName),
     });
   }
+  r.confirmations.push(...(opts.extraConfirmations ?? []));
   const useGit = await gitConfirmations(ctx, ref, r);
   if (r.confirmations.length > 0 && !opts.confirmed) return { ...r, status: 'confirm' };
   if (useGit && !(await commitBefore(ctx, ref, 'Build', r))) return r;

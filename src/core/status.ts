@@ -6,6 +6,7 @@ import { bookRef, bookRootOf, openProject } from './project';
 import { parseTreeVersion } from './tree';
 import { scanBook, type FileStatus } from './scan';
 import { undoInfo, type UndoInfo } from './undo';
+import { modulesFromBook, vbaOutputInfo, type VbaBookInfo } from './vba';
 
 export interface BookStatus {
   book: string;
@@ -18,6 +19,8 @@ export interface BookStatus {
   treeVersion: string | null;
   /** 元に戻せる直前の Build / Sync */
   undo: UndoInfo | null;
+  /** VBA モードのビルド結果 */
+  vba?: VbaBookInfo;
 }
 
 /** 読み取り専用で各ファイルの状態を返す（GUI の「編集中ファイル一覧」用、5.5-3） */
@@ -25,10 +28,21 @@ export async function bookStatus(root: string, bookAbs: string): Promise<BookSta
   const ctx = await openProject(root);
   const ref = bookRef(root, bookAbs, bookRootOf(root, ctx.config));
   const scan = await scanBook(ctx, ref);
+  const errors = [...scan.errors];
+  const warnings = [...scan.warnings];
+  let vba: VbaBookInfo | undefined;
+  if (ctx.config.mode === 'vba') {
+    // フォームの書き方などの間違いを、Build の前に知らせる
+    const m = modulesFromBook(scan.book, ctx.config.extraCodeNames);
+    errors.push(...m.errors);
+    warnings.push(...m.warnings);
+    vba = await vbaOutputInfo(ctx, ref);
+  }
   return {
     book: ref.rel,
-    errors: scan.errors,
-    warnings: scan.warnings,
+    errors,
+    warnings,
+    vba,
     files: scan.entries
       .filter((e) => e.status !== 'gone')
       .map((e) => ({ name: e.name, status: e.status, format: formatLabel(e.format ?? defaultFormat(e.name)) })),
