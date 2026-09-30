@@ -1,12 +1,12 @@
-# xlCode インストーラー（1.3.1 preview 5）
+# xlCode インストーラー（1.4.0）
 
 GitHub の 1 ファイル 100MB 制限のため 2 つに分割している。**Windows 上での動作はまだ確認していない。**
 
 ## 使い方
 
 1. このフォルダを取得する（`git clone` か「Code → Download ZIP」）
-2. `join.bat` をダブルクリック → `xlCode-Setup-1.3.1.exe` ができる
-3. `xlCode-Setup-1.3.1.exe` を実行して、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
+2. `join.bat` をダブルクリック → `xlCode-Setup-1.4.0.exe` ができる
+3. `xlCode-Setup-1.4.0.exe` を実行して、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
 4. スタートメニュー・デスクトップの xlCode から起動
 
 以前のバージョンを入れている場合は、そのまま上書きでインストールできる。
@@ -15,11 +15,11 @@ GitHub の 1 ファイル 100MB 制限のため 2 つに分割している。**W
 
 ## 確認用
 
-作られるソース: コミット d6bf3b0（main。VBA モードはソースコード経由・取り込み・参照設定を含む）
+作られるソース: コミット 41a9788（main。UI/UX 改良: 次の操作の案内・差分の確認・元に戻す、新しいロゴ。VBA モード・取り込み・参照設定を含む）
 
-xlCode-Setup-1.3.1.exe の SHA-256:
-`500a0e8451256abd36295d387d420244a25fb2a46a09b027753c3465cc50bf20`
+xlCode-Setup-1.4.0.exe の SHA-256:
+`2946594f57687344f700c61558bae884ca433af6f36b5986fef22be24c4dc2ad`
 
-Windows では `certutil -hashfile xlCode-Setup-1.3.1.exe SHA256` で確認できる。
+Windows では `certutil -hashfile xlCode-Setup-1.4.0.exe SHA256` で確認できる。
 
 確認してほしい項目は [docs/windows-checklist.md](../../docs/windows-checklist.md)（特に 6・1-4・7・10・11・12）。
