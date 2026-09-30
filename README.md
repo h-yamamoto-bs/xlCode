@@ -14,6 +14,8 @@ Excel in Copilot（Web）を疑似的なコーディングエージェントと�
 
 ## npm install できない環境で使う
 
+Windows で clone したあとの手順は [docs/windows-setup.md](docs/windows-setup.md)。
+
 配布物は 2 種類。
 
 | 配布物 | 中身 | 必要なもの |
