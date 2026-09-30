@@ -401,3 +401,34 @@ describe('変更の確認と元に戻す', () => {
     await expect(win.getByRole('button', { name: 'Build を元に戻す' }).count()).resolves.toBe(0);
   });
 });
+
+describe('ヘルプ', () => {
+  it('F1 やブック画面の案内からヘルプを開き、目次と検索で探せる', async () => {
+    const f = await project();
+    running = await launch(f.root);
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    // 次の操作の「使い方」から、該当する見出しを開く
+    await win.getByRole('note').getByRole('button', { name: '使い方' }).click();
+    const article = win.locator('article');
+    await article.getByRole('heading', { name: '基本の流れ' }).waitFor();
+    // 目次から移動する
+    const toc = win.getByRole('complementary', { name: '目次' });
+    await toc.getByRole('button', { name: '衝突の解決', exact: true }).click();
+    await expect(article.getByRole('heading', { name: '衝突の解決' }).isVisible()).resolves.toBe(true);
+    // 検索で章を絞り込み、語を強調する
+    await win.getByLabel('ヘルプを検索').fill('DEL_');
+    await toc.getByText(/件の章が見つかりました/).waitFor();
+    await expect(article.locator('mark').first().textContent()).resolves.toBe('DEL_');
+    await expect(article.getByRole('heading', { name: 'OneDrive との付き合い方' }).count()).resolves.toBe(0);
+    // 本文中のリンクは、検索で隠れた見出しでも移動できる
+    await article.getByRole('link', { name: '衝突シート' }).first().click();
+    await article.getByRole('heading', { name: '衝突の解決' }).waitFor();
+    await expect(win.getByLabel('ヘルプを検索').inputValue()).resolves.toBe('');
+    // エクスプローラーに戻り、F1 でまた開く
+    await win.getByRole('button', { name: 'エクスプローラー' }).click();
+    await win.getByRole('button', { name: 'Build', exact: true }).waitFor();
+    await win.keyboard.press('F1');
+    await article.getByRole('heading', { name: 'xlCode の使い方' }).waitFor();
+  });
+});

@@ -128,6 +128,18 @@ export const Icon = {
       <path d="M8 7.2v4M8 4.8v.1" />
     </Svg>
   ),
+  Help: (p: P) => (
+    <Svg {...p}>
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M6.1 6.2a2 2 0 1 1 2.7 1.9c-.5.2-.8.6-.8 1.1v.5M8 11.8v.1" />
+    </Svg>
+  ),
+  Search: (p: P) => (
+    <Svg {...p}>
+      <circle cx="6.8" cy="6.8" r="4.3" />
+      <path d="M10 10l4 4" />
+    </Svg>
+  ),
   Check: (p: P) => (
     <Svg {...p}>
       <path d="M3 8.5l3 3 7-7" />

@@ -16,15 +16,15 @@ cd xlCode
 
 ## A. アプリとして使う（インストーラー。Node.js 不要）
 
-1. `release\installer\join.bat` をダブルクリック → `xlCode-Setup-1.4.0.exe` ができる
+1. `release\installer\join.bat` をダブルクリック → `xlCode-Setup-1.5.0.exe` ができる
 2. （任意）ハッシュを確認する
 
    ```bat
-   certutil -hashfile release\installer\xlCode-Setup-1.4.0.exe SHA256
+   certutil -hashfile release\installer\xlCode-Setup-1.5.0.exe SHA256
    ```
 
-   `2946594f57687344f700c61558bae884ca433af6f36b5986fef22be24c4dc2ad` と一致すれば OK
-3. `xlCode-Setup-1.4.0.exe` を実行し、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
+   `1e340281c39c93b3bc675a7264af373b2ef2d81c42a5ff1ed6bdbf04a3900362` と一致すれば OK
+3. `xlCode-Setup-1.5.0.exe` を実行し、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
    - SmartScreen の警告が出たら「詳細情報 → 実行」（署名がないため）
    - 会社の AppLocker などで起動できない場合は「すべてのユーザー」（Program Files）で試す
 4. スタートメニュー・デスクトップの xlCode から起動する
@@ -39,7 +39,7 @@ cd xlCode
    certutil -hashfile release\xlCode-src-win.zip SHA256
    ```
 
-   `65c2a26eb2b2dbb1a5e7d35efc575cc73eafa52a6c14ac38565d69d3059d204a` と一致すれば OK
+   `1e851a309af46b8564cd45935e3e9802b56e908a036f54dcf3f8d1f2e9d9cdb4` と一致すれば OK
 4. 展開する。エクスプローラーの展開は遅く、長いパスで失敗しやすいので `tar` を使う
 
    ```bat
@@ -58,7 +58,7 @@ cd xlCode
 ### Git の履歴付きで開発したい場合
 
 zip には `.git` が入っていない。展開した `node_modules` フォルダだけを clone した `C:\dev\xlCode\` 直下へ移せば、clone 側でそのまま `npm run dev` できる（`node_modules` は `.gitignore` 済み）。
-zip はコミット 41a9788 時点のもの。clone 側の `package.json` の依存が変わっていれば作り直しが必要。
+zip はコミット 56dacb3 時点のもの。clone 側の `package.json` の依存が変わっていれば作り直しが必要。
 
 ### よく使うコマンド
 
@@ -78,4 +78,4 @@ npm run package:win  :: インストーラーを作る（初回に NSIS など�
 - **7** OneDrive の同期状態（ステータスバーの「OneDrive: 〜」をクリックして出る `attrs` / `sts` / `sps` の値を記録）
 - **10・11・12**
 
-1.4.0 のインストーラーは Windows 上ではまだ動作を確認していない。
+1.5.0 のインストーラーは Windows 上ではまだ動作を確認していない。
