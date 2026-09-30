@@ -868,7 +868,7 @@ export function App() {
           'pr-[140px]',
         )}
       >
-        <Icon.Excel size={16} className="text-excel" />
+        <Icon.Logo size={20} />
         <div className="flex-1 text-center text-[12px] text-muted">
           {project ? `${project.name} — xlCode` : 'xlCode'}
         </div>

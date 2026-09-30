@@ -55,8 +55,8 @@ export function StatusBar({
   const stale = project?.books.filter((b) => b.treeVersion !== project.treeVersion).length ?? 0;
   return (
     <div className="flex h-[22px] shrink-0 items-center border-t border-line bg-side text-[12px] text-fg">
-      <div className="flex h-full items-center bg-accent px-2.5 text-white">
-        <Icon.Excel size={14} />
+      <div className="flex h-full items-center px-2.5" title="xlCode">
+        <Icon.Logo size={18} />
       </div>
       {project?.git.repo ? (
         <Item title={`${project.git.changes.length} 件の未コミット変更`}>
