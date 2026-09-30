@@ -14,7 +14,7 @@ export function Welcome({
     <div className="flex h-full items-center justify-center overflow-auto bg-editor">
       <div className="w-[680px] max-w-[90%] py-10">
         <div className="mb-1 flex items-center gap-3 text-[34px] font-light text-fg-strong">
-          <Icon.Logo size={56} crop={1.3} className="rounded-[10px]" />
+          <Icon.Logo size={64} />
           xlCode
         </div>
         <div className="mb-10 text-[15px] text-muted">

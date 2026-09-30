@@ -207,27 +207,14 @@ export const Icon = {
       <path d="M6 13.5h4M6.5 11.5h3M8 2a4 4 0 0 0-2.5 7.1c.4.4.7 1 .7 1.6v.8h3.6v-.8c0-.6.3-1.2.7-1.6A4 4 0 0 0 8 2z" />
     </Svg>
   ),
-  /**
-   * アプリのロゴ（build/icon.png と同じ画像）。画像は周囲に余白が多いので、
-   * 小さく出すときは中央を切り出して図柄が大きく見えるようにする
-   */
-  Logo: ({ size = 16, className, crop = 1.6 }: P & { crop?: number }) => (
-    <span
-      className={`inline-block shrink-0 overflow-hidden rounded-[3px] align-middle ${className ?? ''}`}
-      style={{ width: size, height: size }}
-    >
-      <img
-        src={logo}
-        alt=""
-        draggable={false}
-        style={{
-          width: size * crop,
-          height: size * crop,
-          maxWidth: 'none',
-          margin: -((size * crop - size) / 2),
-          display: 'block',
-        }}
-      />
-    </span>
+  /** アプリのロゴ（build/icon.png と同じ図柄。背景は透過で、図柄の周りだけを切り出した画像） */
+  Logo: ({ size = 16, className }: P) => (
+    <img
+      src={logo}
+      alt=""
+      draggable={false}
+      className={`inline-block shrink-0 align-middle ${className ?? ''}`}
+      style={{ width: size, height: 'auto' }}
+    />
   ),
 };
