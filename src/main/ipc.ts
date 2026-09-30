@@ -36,7 +36,7 @@ import { atomicWrite } from '../core/atomic';
 import { excelPathError, isBookFile, isIgnored, toPosixRel } from '../core/fsutil';
 import { exists } from '../core/project';
 import type { BookSummary, OpenVia, ProjectInfo, Result } from '../shared/api';
-import { joinUrl, readSyncRoots, toWebUrl } from './onedrive';
+import { isPersonalUrl, joinUrl, openOnlineViaOneDrive, readSyncRoots, toWebUrl } from './onedrive';
 import { runImportJob, runVbaJob } from './excelCom';
 import { bookStamp, querySyncStatus } from './syncStatus';
 
@@ -139,14 +139,38 @@ function openTerminal(dir: string): void {
   }
 }
 
-/** Web 版 Excel で開く URL。設定（webUrlBase）優先、無ければ OneDrive の同期設定から求める */
-async function webUrl(root: string, abs: string): Promise<string> {
+/**
+ * Web 版 Excel で開く。開いた URL を返す（OneDrive の「オンラインで表示」で開いた場合は null）。
+ * 設定（webUrlBase）優先、無ければ OneDrive の同期設定から URL を求める
+ */
+async function openInWeb(root: string, abs: string): Promise<string | null> {
   const { webUrlBase } = await loadConfig(root);
-  if (webUrlBase) return joinUrl(webUrlBase, toPosixRel(await bookRootFor(root), abs).split('/'));
-  const url = toWebUrl(abs, await readSyncRoots());
-  if (url) return url;
+  if (webUrlBase) {
+    const url = joinUrl(webUrlBase, toPosixRel(await bookRootFor(root), abs).split('/'));
+    await shell.openExternal(url);
+    return url;
+  }
+  const roots = await readSyncRoots();
+  const url = toWebUrl(abs, roots);
+  if (url && !isPersonalUrl(url)) {
+    await shell.openExternal(url);
+    return url;
+  }
+  // 個人用 OneDrive は URL にファイルの ID が要るため、OneDrive 自身に開かせる
+  if (await openOnlineViaOneDrive(abs)) return null;
+  if (url) {
+    await shell.openExternal(url);
+    return url;
+  }
+  const found = roots.map((r) => `  ${r.mountPoint} → ${r.urlNamespace}`).join('\n');
   throw new Error(
-    'Web 版の URL を特定できません。プロジェクトが OneDrive / SharePoint の同期フォルダ内にあるか確認するか、設定の「Web 版の URL」にプロジェクトルートの URL を入力してください',
+    [
+      'Web 版の URL を特定できません。ブックが OneDrive / SharePoint の同期フォルダ内にあるか確認するか、設定の「Web 版の URL」にブックの置き場所の URL を入力してください。',
+      `ブック: ${abs}`,
+      found
+        ? `見つかった同期フォルダ:\n${found}`
+        : '同期フォルダが見つかりませんでした（OneDrive にサインインしているか確認してください）',
+    ].join('\n'),
   );
 }
 
@@ -254,9 +278,7 @@ export function registerIpc(): void {
         if (err) throw new Error(err);
         return null;
       }
-      const url = await webUrl(root, abs);
-      await shell.openExternal(url);
-      return url;
+      return openInWeb(root, abs);
     }),
   );
   ipcMain.handle('bookLocks', (_e, root: string, books: string[]) =>

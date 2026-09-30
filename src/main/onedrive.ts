@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { runPowerShell } from './powershell';
 
 const exec = promisify(execFile);
 
@@ -50,13 +51,78 @@ export function toWebUrl(fileAbs: string, roots: SyncRoot[], sep = path.sep): st
 
 /** ベース URL と相対パスから、ブラウザ（Excel for the web）で開く URL を作る */
 export function joinUrl(base: string, segments: string[]): string {
-  const b = base.endsWith('/') ? base : `${base}/`;
+  // ブラウザからコピーした URL の ?web=1 などは除く
+  const bare = base.replace(/[?#].*$/, '');
+  const b = bare.endsWith('/') ? bare : `${bare}/`;
   return `${b}${segments.map(encodeURIComponent).join('/')}?web=1`;
 }
 
-/** Windows の OneDrive 設定から同期フォルダ一覧を取得する（他 OS では空） */
+/** PowerShell から受け取るレジストリの値（同期フォルダ、または OneDrive のアカウント） */
+export interface RawRoot {
+  mountPoint?: string;
+  urlNamespace?: string;
+  /** HKCU\Software\Microsoft\OneDrive\Accounts\<account> */
+  account?: string;
+  userFolder?: string;
+  cid?: string;
+  serviceEndpointUri?: string;
+}
+
+/**
+ * レジストリの値から同期フォルダ一覧を作る。
+ * SyncEngines（同期フォルダごとの URL）を優先し、無ければ OneDrive のアカウント設定から個人用フォルダの URL を求める
+ */
+export function rootsFromRaw(raws: RawRoot[]): SyncRoot[] {
+  const roots: SyncRoot[] = [];
+  for (const r of raws) {
+    if (r.mountPoint && r.urlNamespace) roots.push({ mountPoint: r.mountPoint, urlNamespace: r.urlNamespace });
+  }
+  for (const r of raws) {
+    if (!r.userFolder || roots.some((x) => x.mountPoint.toLowerCase() === r.userFolder!.toLowerCase())) continue;
+    // 職場・学校: https://contoso-my.sharepoint.com/personal/me_contoso_com/_api → …/Documents/
+    const api = r.serviceEndpointUri?.match(/^(https:\/\/[^/]+\/personal\/[^/]+)\/_api\/?$/i);
+    if (api) roots.push({ mountPoint: r.userFolder, urlNamespace: `${api[1]}/Documents/` });
+    else if (r.account?.toLowerCase() === 'personal' && r.cid)
+      roots.push({ mountPoint: r.userFolder, urlNamespace: `https://d.docs.live.net/${r.cid}/` });
+  }
+  return roots;
+}
+
+/** 個人用 OneDrive（d.docs.live.net）の URL か。ブラウザでは Excel for the web として開けない */
+export function isPersonalUrl(url: string): boolean {
+  return /^https:\/\/d\.docs\.live\.net\//i.test(url);
+}
+
+const REGISTRY_SCRIPT = `
+$ErrorActionPreference = 'SilentlyContinue'
+$out = @()
+foreach ($k in @(Get-ChildItem -LiteralPath 'HKCU:\\Software\\SyncEngines\\Providers\\OneDrive')) {
+  $p = Get-ItemProperty -LiteralPath $k.PSPath
+  if ($p.MountPoint -and $p.UrlNamespace) {
+    $out += [pscustomobject]@{ mountPoint = [string]$p.MountPoint; urlNamespace = [string]$p.UrlNamespace }
+  }
+}
+foreach ($k in @(Get-ChildItem -LiteralPath 'HKCU:\\Software\\Microsoft\\OneDrive\\Accounts')) {
+  $p = Get-ItemProperty -LiteralPath $k.PSPath
+  if ($p.UserFolder) {
+    $out += [pscustomobject]@{ account = [string]$k.PSChildName; userFolder = [string]$p.UserFolder; cid = [string]$p.cid; serviceEndpointUri = [string]$p.ServiceEndpointUri }
+  }
+}
+ConvertTo-Json -InputObject @($out) -Compress
+`;
+
+/**
+ * Windows の OneDrive 設定から同期フォルダ一覧を取得する（他 OS では空）。
+ * reg.exe の出力はコードページ（日本語環境では CP932）で届き、「OneDrive - 株式会社…」などが文字化けするため、PowerShell で UTF-8 にして読む
+ */
 export async function readSyncRoots(): Promise<SyncRoot[]> {
   if (process.platform !== 'win32') return [];
+  try {
+    const out = (await runPowerShell(REGISTRY_SCRIPT)).trim();
+    if (out) return rootsFromRaw(JSON.parse(out) as RawRoot[]);
+  } catch {
+    // 下の reg.exe に任せる
+  }
   try {
     const { stdout } = await exec('reg', ['query', 'HKCU\\Software\\SyncEngines\\Providers\\OneDrive', '/s'], {
       windowsHide: true,
@@ -64,5 +130,27 @@ export async function readSyncRoots(): Promise<SyncRoot[]> {
     return parseSyncRoots(stdout);
   } catch {
     return [];
+  }
+}
+
+/**
+ * エクスプローラーの右クリックメニューにある OneDrive の「オンラインで表示」を実行する。
+ * 個人用 OneDrive など URL を組み立てられない場合に使う。実行できたら true
+ */
+export async function openOnlineViaOneDrive(fileAbs: string): Promise<boolean> {
+  if (process.platform !== 'win32') return false;
+  const b64 = Buffer.from(fileAbs, 'utf8').toString('base64');
+  try {
+    const out = await runPowerShell(`
+$ErrorActionPreference = 'Stop'
+$p = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}'))
+$sh = New-Object -ComObject Shell.Application
+$item = $sh.Namespace([IO.Path]::GetDirectoryName($p)).ParseName([IO.Path]::GetFileName($p))
+$v = @($item.Verbs()) | Where-Object { ($_.Name -replace '&', '') -match '^\\s*(オンラインで表示|View online)' } | Select-Object -First 1
+if ($v) { $v.DoIt(); 'ok' } else { 'none' }
+`);
+    return out.trim() === 'ok';
+  } catch {
+    return false;
   }
 }

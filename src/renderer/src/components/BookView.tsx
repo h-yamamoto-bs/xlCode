@@ -268,7 +268,7 @@ export function BookView({
             variant={openPrimary ? 'primary' : 'secondary'}
             onClick={() => onOpenExcel('desktop')}
             disabled={disabled}
-            title={reason('Sync してからデスクトップ版 Excel で開く')}
+            title={reason('デスクトップ版 Excel で開く（反映していないソースの変更があれば、先に Sync する）')}
           >
             <Icon.Desktop size={15} />
             {mode === 'both' ? 'デスクトップで開く' : 'Excelで開く'}
@@ -279,7 +279,7 @@ export function BookView({
             variant={openPrimary && mode === 'web' ? 'primary' : 'secondary'}
             onClick={() => onOpenExcel('web')}
             disabled={disabled}
-            title={reason('Sync してから Web 版 Excel（ブラウザ）で開く')}
+            title={reason('Web 版 Excel（ブラウザ）で開く（反映していないソースの変更があれば、先に Sync する）')}
           >
             <Icon.Cloud size={15} />
             {mode === 'both' ? 'Webで開く' : 'Excelで開く'}

@@ -1,6 +1,6 @@
 import { rm, writeFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bookStatus, refreshTree } from '../src/core';
+import { bookStatus, createBook, refreshTree } from '../src/core';
 import { API_BOOK, APP_BOOK, launch, project, selectBook, waitLog, type Running } from './harness';
 
 let running: Running | null = null;
@@ -20,6 +20,32 @@ describe('xlCode GUI', () => {
     await expect(win.getByRole('button', { name: 'デスクトップで開く' }).isVisible()).resolves.toBe(true);
     await expect(win.getByRole('button', { name: 'Webで開く' }).isVisible()).resolves.toBe(true);
     await expect(win.getByText('Excel: 両方').isVisible()).resolves.toBe(true);
+  });
+
+  it('ソースの変更が無ければ、「開く」で確認も Sync もせずにそのまま開く', async () => {
+    const f = await project();
+    running = await launch(f.root, 'web');
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    await win.getByRole('button', { name: 'Excelで開く' }).click();
+    // Linux には OneDrive が無いので URL を求められず、開けなかった旨が出る（その前に確認は出ない）
+    await win.getByText('Web 版で開けませんでした').waitFor();
+    await expect(win.getByRole('button', { name: '閉じたので続行' }).count()).resolves.toBe(0);
+    await expect(win.getByText('Sync 開始').count()).resolves.toBe(0);
+  });
+
+  it('ブックをディレクトリの階層で表示する', async () => {
+    const f = await project();
+    await f.write('pkg/web/src/main.ts', 'export {};\n');
+    await createBook(f.root, f.file('pkg/web/src'));
+    running = await launch(f.root);
+    const { win } = running;
+    const tree = win.getByRole('tree', { name: 'ブック', exact: true });
+    await tree.getByRole('treeitem', { name: 'pkg/web/src', exact: true }).waitFor();
+    await tree.getByRole('treeitem', { name: 'src.xlcode.xlsx' }).waitFor();
+    // 閉じると中のブックが隠れる
+    await tree.getByRole('treeitem', { name: 'pkg/web/src', exact: true }).locator('div').first().click();
+    await expect(tree.getByRole('treeitem', { name: 'src.xlcode.xlsx' }).count()).resolves.toBe(0);
   });
 
   it('Excel 側の変更を Build でファイルへ出力する', async () => {

@@ -1,6 +1,7 @@
 import clsx from 'clsx';
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { BookSummary, BookSync, ProjectInfo } from '../../../shared/api';
+import { buildDirTree, countItems, type DirNode } from '../dirTree';
 import { EXCEL_SIDE, SOURCE_SIDE, STATUS, SYNC_META } from '../status';
 import { Icon } from './Icons';
 import { IconButton, Section } from './ui';
@@ -44,7 +45,31 @@ export function Sidebar({
   const [openBooks, setOpenBooks] = useState(true);
   // ブックが無いときは、作成先を選べるよう最初から開いておく
   const [openDirs, setOpenDirs] = useState(project.books.length === 0);
+  // 開閉状態（キー: dir:パス / book:ブック / empty:パス）。未操作なら既定値
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggle = (key: string, def: boolean) => setExpanded((e) => ({ ...e, [key]: !(e[key] ?? def) }));
+  const bookTree = useMemo(
+    () =>
+      buildDirTree(
+        project.books,
+        (b) => b.dirRel,
+        (b) => b.rel.split('/').pop()!,
+      ),
+    [project.books],
+  );
+  const dirTree = useMemo(
+    () =>
+      buildDirTree(
+        project.dirsWithoutBook,
+        (d) => d,
+        (d) => d,
+      ),
+    [project.dirsWithoutBook],
+  );
+  const createProps = (d: string) => ({
+    title: `${d || 'ルート'} にブックを作成${vba ? '（既存の Excel ツールから取り込み / 空のブック）' : ''}`,
+    busy,
+  });
 
   return (
     <div className="flex h-full flex-col bg-side">
@@ -74,90 +99,25 @@ export function Sidebar({
           </div>
         )}
         <ul role="tree" aria-label="ブック">
-          {project.books.map((b) => {
-            const badge = bookBadges(b, project.treeVersion);
-            const isOpen = expanded[b.rel] ?? b.rel === selected;
-            const fileName = b.rel.split('/').pop()!;
-            const changed = (b.files ?? []).filter((f) => f.status !== 'clean');
-            return (
-              <li key={b.rel} role="treeitem" aria-expanded={isOpen} aria-selected={b.rel === selected}>
-                <div
-                  className={clsx(
-                    'group flex h-[22px] cursor-pointer items-center gap-1 pr-2 pl-2',
-                    b.rel === selected
-                      ? 'bg-focus outline outline-1 -outline-offset-1 outline-accent'
-                      : 'hover:bg-hover',
-                  )}
-                  onClick={() => onSelect(b.rel)}
-                >
-                  <span
-                    className="flex w-4 justify-center text-muted"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setExpanded({ ...expanded, [b.rel]: !isOpen });
-                    }}
-                  >
-                    {isOpen ? <Icon.ChevronDown size={14} /> : <Icon.ChevronRight size={14} />}
-                  </span>
-                  <Icon.Book size={15} className="shrink-0 text-excel" />
-                  <span className="truncate text-fg">{fileName}</span>
-                  <span className="truncate text-[11px] text-faint">{b.dirRel || '.'}</span>
-                  <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[11px]">
-                    {b.open && <Icon.Lock size={12} className="text-warn" aria-label="開かれています" />}
-                    {sync[b.rel] && SYNC_META[sync[b.rel].state].label && sync[b.rel].state !== 'outside' && (
-                      <span title={`OneDrive: ${SYNC_META[sync[b.rel].state].label}`} className="flex">
-                        <Icon.Cloud
-                          size={13}
-                          className={SYNC_META[sync[b.rel].state].color}
-                          aria-label={`OneDrive: ${SYNC_META[sync[b.rel].state].label}`}
-                        />
-                      </span>
-                    )}
-                    {badge.problems > 0 && <Icon.Error size={12} className="text-deleted" aria-label="エラー" />}
-                    {badge.conflict > 0 && (
-                      <span className="text-conflict" title={`両側で変更: ${badge.conflict}（Build で衝突シート作成）`}>
-                        C{badge.conflict}
-                      </span>
-                    )}
-                    {badge.excel > 0 && (
-                      <span className="text-modified" title={`Excel側で編集中: ${badge.excel}（Build で反映）`}>
-                        E{badge.excel}
-                      </span>
-                    )}
-                    {badge.source > 0 && (
-                      <span className="text-info" title={`エディタ側で変更: ${badge.source}（Sync で反映）`}>
-                        S{badge.source}
-                      </span>
-                    )}
-                  </span>
-                </div>
-                {isOpen && (
-                  <ul role="group">
-                    {(b.files ?? []).map((f) => {
-                      const m = STATUS[f.status];
-                      return (
-                        <li
-                          key={f.name}
-                          role="treeitem"
-                          className="flex h-[22px] items-center gap-1.5 pr-3 pl-[38px] hover:bg-hover"
-                          title={m.hint ? `${m.label} — ${m.hint}` : m.label}
-                        >
-                          <Icon.File size={14} className="shrink-0 text-muted" />
-                          <span className={clsx('truncate', f.status === 'clean' ? 'text-fg' : m.color)}>{f.name}</span>
-                          <span className={clsx('ml-auto w-4 text-right font-mono text-[11px]', m.color)}>
-                            {m.letter}
-                          </span>
-                        </li>
-                      );
-                    })}
-                    {b.files && changed.length === 0 && b.files.length === 0 && (
-                      <li className="pl-[38px] text-[12px] text-faint">シートなし</li>
-                    )}
-                  </ul>
-                )}
-              </li>
-            );
-          })}
+          <BookDir
+            node={bookTree}
+            depth={0}
+            expanded={expanded}
+            toggle={toggle}
+            renderBook={(b, depth) => (
+              <BookItem
+                key={b.rel}
+                book={b}
+                depth={depth}
+                treeVersion={project.treeVersion}
+                selected={b.rel === selected}
+                open={expanded[`book:${b.rel}`] ?? b.rel === selected}
+                onToggle={() => toggle(`book:${b.rel}`, b.rel === selected)}
+                onSelect={() => onSelect(b.rel)}
+                sync={sync[b.rel]}
+              />
+            )}
+          />
         </ul>
       </Section>
       <Section
@@ -173,23 +133,267 @@ export function Sidebar({
           )
         }
       >
-        <ul className="max-h-[30vh] overflow-auto pb-1">
-          {project.dirsWithoutBook.map((d) => (
-            <li key={d} className="group flex h-[22px] items-center gap-1.5 pr-2 pl-5 hover:bg-hover">
-              <Icon.Folder size={14} className="shrink-0 text-muted" />
-              <span className="truncate">{d || `${project.name}（ルート）`}</span>
-              <IconButton
-                title={`${d || 'ルート'} にブックを作成${vba ? '（既存の Excel ツールから取り込み / 空のブック）' : ''}`}
-                className="ml-auto opacity-0 group-hover:opacity-100"
-                onClick={() => onCreateBook(d)}
-                disabled={busy}
-              >
-                <Icon.Plus size={14} />
-              </IconButton>
+        <ul role="tree" aria-label="ブック未作成のディレクトリ" className="max-h-[30vh] overflow-auto pb-1">
+          {dirTree.items.length > 0 && (
+            <li role="treeitem" aria-label={`${project.name}（ルート）`}>
+              <DirRow
+                label={`${project.name}（ルート）`}
+                depth={0}
+                onCreate={() => onCreateBook('')}
+                {...createProps('')}
+              />
             </li>
-          ))}
+          )}
+          <EmptyDirs
+            node={dirTree}
+            depth={0}
+            expanded={expanded}
+            toggle={toggle}
+            render={(n, depth, isOpen, onToggle) => (
+              <DirRow
+                key={n.path}
+                label={n.label}
+                depth={depth}
+                isOpen={n.dirs.length > 0 ? isOpen : undefined}
+                onToggle={onToggle}
+                onCreate={n.items.includes(n.path) ? () => onCreateBook(n.path) : undefined}
+                {...createProps(n.path)}
+              />
+            )}
+          />
         </ul>
       </Section>
+    </div>
+  );
+}
+
+const INDENT = 12;
+const pad = (depth: number) => ({ paddingLeft: 8 + depth * INDENT });
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <span className="flex w-4 shrink-0 justify-center text-muted">
+      {open ? <Icon.ChevronDown size={14} /> : <Icon.ChevronRight size={14} />}
+    </span>
+  );
+}
+
+/** ブックの階層。ディレクトリ → その下のディレクトリとブック */
+function BookDir({
+  node,
+  depth,
+  expanded,
+  toggle,
+  renderBook,
+}: {
+  node: DirNode<BookSummary>;
+  depth: number;
+  expanded: Record<string, boolean>;
+  toggle: (key: string, def: boolean) => void;
+  renderBook: (b: BookSummary, depth: number) => ReactNode;
+}) {
+  return (
+    <>
+      {node.dirs.map((d) => {
+        const key = `dir:${d.path}`;
+        const isOpen = expanded[key] ?? true;
+        return (
+          <li key={key} role="treeitem" aria-label={d.label} aria-expanded={isOpen}>
+            <div
+              className="flex h-[22px] cursor-pointer items-center gap-1 pr-2 hover:bg-hover"
+              style={pad(depth)}
+              title={d.path}
+              onClick={() => toggle(key, true)}
+            >
+              <Chevron open={isOpen} />
+              <Icon.Folder size={14} className="shrink-0 text-muted" />
+              <span className="truncate text-fg">{d.label}</span>
+              {!isOpen && <span className="ml-auto shrink-0 text-[11px] text-faint">{countItems(d)}</span>}
+            </div>
+            {isOpen && (
+              <ul role="group">
+                <BookDir node={d} depth={depth + 1} expanded={expanded} toggle={toggle} renderBook={renderBook} />
+              </ul>
+            )}
+          </li>
+        );
+      })}
+      {node.items.map((b) => renderBook(b, depth))}
+    </>
+  );
+}
+
+function BookItem({
+  book: b,
+  depth,
+  treeVersion,
+  selected,
+  open: isOpen,
+  onToggle,
+  onSelect,
+  sync,
+}: {
+  book: BookSummary;
+  depth: number;
+  treeVersion: string;
+  selected: boolean;
+  open: boolean;
+  onToggle: () => void;
+  onSelect: () => void;
+  sync: BookSync | undefined;
+}) {
+  const badge = bookBadges(b, treeVersion);
+  const fileName = b.rel.split('/').pop()!;
+  const syncMeta = sync && sync.state !== 'outside' ? SYNC_META[sync.state] : null;
+  return (
+    <li role="treeitem" aria-label={fileName} aria-expanded={isOpen} aria-selected={selected}>
+      <div
+        className={clsx(
+          'group flex h-[22px] cursor-pointer items-center gap-1 pr-2',
+          selected ? 'bg-focus outline outline-1 -outline-offset-1 outline-accent' : 'hover:bg-hover',
+        )}
+        style={pad(depth)}
+        title={b.rel}
+        onClick={onSelect}
+      >
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+        >
+          <Chevron open={isOpen} />
+        </span>
+        <Icon.Book size={15} className="shrink-0 text-excel" />
+        <span className="truncate text-fg">{fileName}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[11px]">
+          {b.open && <Icon.Lock size={12} className="text-warn" aria-label="開かれています" />}
+          {syncMeta?.label && (
+            <span title={`OneDrive: ${syncMeta.label}`} className="flex">
+              <Icon.Cloud size={13} className={syncMeta.color} aria-label={`OneDrive: ${syncMeta.label}`} />
+            </span>
+          )}
+          {badge.problems > 0 && <Icon.Error size={12} className="text-deleted" aria-label="エラー" />}
+          {badge.conflict > 0 && (
+            <span className="text-conflict" title={`両側で変更: ${badge.conflict}（Build で衝突シート作成）`}>
+              C{badge.conflict}
+            </span>
+          )}
+          {badge.excel > 0 && (
+            <span className="text-modified" title={`Excel側で編集中: ${badge.excel}（Build で反映）`}>
+              E{badge.excel}
+            </span>
+          )}
+          {badge.source > 0 && (
+            <span className="text-info" title={`エディタ側で変更: ${badge.source}（Sync で反映）`}>
+              S{badge.source}
+            </span>
+          )}
+        </span>
+      </div>
+      {isOpen && (
+        <ul role="group">
+          {(b.files ?? []).map((f) => {
+            const m = STATUS[f.status];
+            return (
+              <li
+                key={f.name}
+                role="treeitem"
+                className="flex h-[22px] items-center gap-1.5 pr-3 hover:bg-hover"
+                style={{ paddingLeft: 8 + (depth + 1) * INDENT + 18 }}
+                title={m.hint ? `${m.label} — ${m.hint}` : m.label}
+              >
+                <Icon.File size={14} className="shrink-0 text-muted" />
+                <span className={clsx('truncate', f.status === 'clean' ? 'text-fg' : m.color)}>{f.name}</span>
+                <span className={clsx('ml-auto w-4 text-right font-mono text-[11px]', m.color)}>{m.letter}</span>
+              </li>
+            );
+          })}
+          {b.files && b.files.length === 0 && (
+            <li className="text-[12px] text-faint" style={{ paddingLeft: 8 + (depth + 1) * INDENT + 18 }}>
+              シートなし
+            </li>
+          )}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/** ブック未作成のディレクトリの階層（既定では閉じておく） */
+function EmptyDirs({
+  node,
+  depth,
+  expanded,
+  toggle,
+  render,
+}: {
+  node: DirNode<string>;
+  depth: number;
+  expanded: Record<string, boolean>;
+  toggle: (key: string, def: boolean) => void;
+  render: (n: DirNode<string>, depth: number, isOpen: boolean, onToggle: () => void) => ReactNode;
+}) {
+  return (
+    <>
+      {node.dirs.map((d) => {
+        const key = `empty:${d.path}`;
+        const isOpen = expanded[key] ?? false;
+        return (
+          <li key={key} role="treeitem" aria-label={d.label} aria-expanded={d.dirs.length > 0 ? isOpen : undefined}>
+            {render(d, depth, isOpen, () => toggle(key, false))}
+            {isOpen && d.dirs.length > 0 && (
+              <ul role="group">
+                <EmptyDirs node={d} depth={depth + 1} expanded={expanded} toggle={toggle} render={render} />
+              </ul>
+            )}
+          </li>
+        );
+      })}
+    </>
+  );
+}
+
+function DirRow({
+  label,
+  depth,
+  isOpen,
+  onToggle,
+  onCreate,
+  title,
+  busy,
+}: {
+  label: string;
+  depth: number;
+  /** undefined なら子が無い（開閉しない） */
+  isOpen?: boolean;
+  onToggle?: () => void;
+  onCreate?: () => void;
+  title: string;
+  busy: boolean;
+}) {
+  return (
+    <div
+      className={clsx('group flex h-[22px] items-center gap-1 pr-2 hover:bg-hover', onToggle && 'cursor-pointer')}
+      style={pad(depth)}
+      onClick={isOpen === undefined ? undefined : onToggle}
+    >
+      {isOpen === undefined ? <span className="w-4 shrink-0" /> : <Chevron open={isOpen} />}
+      <Icon.Folder size={14} className={clsx('shrink-0', onCreate ? 'text-muted' : 'text-faint')} />
+      <span className={clsx('truncate', !onCreate && 'text-faint')}>{label}</span>
+      {onCreate && (
+        <IconButton
+          title={title}
+          className="ml-auto opacity-0 group-hover:opacity-100"
+          onClick={(e) => {
+            e.stopPropagation();
+            onCreate();
+          }}
+          disabled={busy}
+        >
+          <Icon.Plus size={14} />
+        </IconButton>
+      )}
     </div>
   );
 }

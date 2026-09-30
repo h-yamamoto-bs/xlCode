@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Confirmation, OpResult, ProjectMode } from '../../core';
-import type { ExcelMode, OpenVia, ProjectInfo, SyncReport } from '../../shared/api';
+import type { BookSummary, ExcelMode, OpenVia, ProjectInfo, SyncReport } from '../../shared/api';
 import { api, storageGet, storageSet, unwrap } from './api';
 import { ACTION_LABEL, BookView, type LastResult } from './components/BookView';
 import { useDialog } from './components/Dialogs';
@@ -12,9 +12,15 @@ import { EXCEL_MODES, SettingsView } from './components/SettingsView';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
 import { Welcome } from './components/Welcome';
-import { SYNC_META } from './status';
+import { SOURCE_SIDE, SYNC_META } from './status';
 
 type View = 'books' | 'rules' | 'settings';
+
+/** 開く前に Sync が要るか（ソース側の変更・衝突がブックにまだ反映されていない） */
+function needsSyncBeforeOpen(b: BookSummary): boolean {
+  if (b.loadError) return false;
+  return (b.files ?? []).some((f) => SOURCE_SIDE.includes(f.status) || f.status === 'conflict');
+}
 
 /** xlCode からブックを開いた方法と、Web 版で開いた時点のブックの状態 */
 interface Opened {
@@ -484,22 +490,33 @@ export function App() {
     [withBusy, ready, syncFlow, refreshStamp],
   );
 
-  /** 5.5-2: Sync → 起動を1操作にまとめる */
+  /**
+   * 5.5-2: Sync → 起動を1操作にまとめる。
+   * ブックに反映していないソースの変更が無ければ、ブックを書き換えないので確認も Sync もせずにそのまま開く
+   */
   const onOpenExcel = useCallback(
     (book: string, via: OpenVia) =>
-      withBusy('Sync して Excel を起動中', async () => {
-        if (!(await ready(book, 'Sync'))) return;
-        setBusy('Sync して Excel を起動中');
-        if (!(await syncFlow(book))) return;
-        // Web 版は、Sync で書き換えたブックが OneDrive にアップロードされてから開く（古い内容が表示されないように）
-        if (via === 'web' && !(await waitForOneDrive(book, '開く'))) return;
+      withBusy('Excel を起動中', async () => {
+        const latest = await api.loadProject(root!);
+        const summary = (latest.ok ? latest.value : project)?.books.find((b) => b.rel === book);
+        const needsSync = !summary || needsSyncBeforeOpen(summary);
+        if (needsSync) {
+          setBusy('Sync して Excel を起動中');
+          if (!(await ready(book, 'Sync'))) return;
+          setBusy('Sync して Excel を起動中');
+          if (!(await syncFlow(book))) return;
+          // Web 版は、Sync で書き換えたブックが OneDrive にアップロードされてから開く（古い内容が表示されないように）
+          if (via === 'web' && !(await waitForOneDrive(book, '開く'))) return;
+          setBusy('Excel を起動中');
+        }
         const opened = await api.openInExcel(root!, book, via);
         if (!opened.ok) {
           if (via !== 'web') throw new Error(opened.error);
+          log('error', opened.error);
           const { value } = await ask({
             title: 'Web 版で開けませんでした',
             icon: 'warning',
-            body: <p>{opened.error}</p>,
+            body: <p className="break-all whitespace-pre-wrap">{opened.error}</p>,
             buttons: [
               { label: '設定を開く', value: true, variant: 'primary' },
               { label: '閉じる', value: false },
@@ -507,7 +524,6 @@ export function App() {
             cancelValue: false,
           });
           if (value) setView('settings');
-          log('error', opened.error);
           return;
         }
         const url = opened.value;
@@ -515,10 +531,15 @@ export function App() {
         setOpened(`${root}|${book}`, { via, stamp: stamp?.ok ? stamp.value : undefined });
         // Web 版で開いたら、閉じたかの確認を再び出す
         if (via === 'web') webSkip.current.delete(book);
-        log('info', via === 'web' ? `Web 版 Excel で開きました: ${url}` : `デスクトップ版 Excel で開きました: ${book}`);
+        log(
+          'info',
+          via === 'web'
+            ? `Web 版 Excel で開きました: ${url ?? `${book}（OneDrive の「オンラインで表示」）`}`
+            : `デスクトップ版 Excel で開きました: ${book}`,
+        );
       }),
 
-    [withBusy, ready, syncFlow, root, log, ask, waitForOneDrive],
+    [withBusy, ready, syncFlow, root, project, log, ask, waitForOneDrive],
   );
 
   /** 直前の Build / Sync を元に戻す（ゴール: 戻せない操作だけ確認する。これは戻せないので確認する） */

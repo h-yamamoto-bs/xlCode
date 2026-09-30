@@ -4,6 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { BookSync, SyncReport, SyncState } from '../shared/api';
 import { readSyncRoots } from './onedrive';
+import { runPowerShell } from './powershell';
 
 const exec = promisify(execFile);
 
@@ -69,16 +70,6 @@ foreach ($p in @($paths)) {
 }
 ConvertTo-Json -InputObject @($out) -Compress
 `;
-}
-
-async function runPowerShell(script: string): Promise<string> {
-  const encoded = Buffer.from(script, 'utf16le').toString('base64');
-  const { stdout } = await exec(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
-    { windowsHide: true, timeout: 20_000, maxBuffer: 4 * 1024 * 1024 },
-  );
-  return stdout;
 }
 
 async function oneDriveRunning(): Promise<boolean | null> {
