@@ -157,6 +157,15 @@ export function SettingsView({
         </Row>
         {config && (
           <>
+            <Row title="プロジェクトの種類" desc="最初のブックを作るときに決めます。あとから変えることはできません。">
+              <div className="text-[13px] text-fg">
+                {config.mode === 'vba'
+                  ? 'VBA モード（.bas / .cls / .frm のシートを VBA として書き込んだ .xlsm を生成）'
+                  : config.mode === 'source'
+                    ? 'ソースコードモード（シートをソースコードのファイルとして書き出す）'
+                    : '未設定（最初のブックを作るときに選びます）'}
+              </div>
+            </Row>
             <Row
               title="Web 版の URL"
               desc={
@@ -203,7 +212,7 @@ export function SettingsView({
               <div className="flex flex-col gap-1.5">
                 {(
                   [
-                    ['format', 'Prettier で整形する'],
+                    ...(config.mode === 'vba' ? [] : ([['format', 'Prettier で整形する']] as const)),
                     ['trimTrailingWhitespace', '行末の空白を削除する（Markdown は対象外）'],
                     ['autoCommit', 'Build / Sync の前に Git へ自動コミットする'],
                   ] as const

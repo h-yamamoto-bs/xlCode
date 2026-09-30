@@ -185,6 +185,10 @@ export async function build(root: string, bookAbs: string, opts: BuildOptions = 
   const ctx = await openProject(root);
   const ref = bookRef(root, bookAbs, bookRootOf(root, ctx.config));
   const r = newResult();
+  if (ctx.config.mode === 'vba') {
+    r.errors.push('VBA モードのプロジェクトです（Build は VBA モードの処理で行い、Sync はありません）');
+    return { ...r, status: 'error' };
+  }
   const scan = await preflight(ctx, ref, r);
   if (!scan) return { ...r, status: 'error' };
   if (scan.conflictSheets.length > 0) {
@@ -292,6 +296,10 @@ export async function sync(root: string, bookAbs: string, opts: SyncOptions = {}
   const ctx = await openProject(root);
   const ref = bookRef(root, bookAbs, bookRootOf(root, ctx.config));
   const r = newResult();
+  if (ctx.config.mode === 'vba') {
+    r.errors.push('VBA モードのプロジェクトです（Build は VBA モードの処理で行い、Sync はありません）');
+    return { ...r, status: 'error' };
+  }
   const scan = await preflight(ctx, ref, r);
   if (!scan) return { ...r, status: 'error' };
   const bs = bookState(ctx.state, ref.rel);

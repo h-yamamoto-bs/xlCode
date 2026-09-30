@@ -21,10 +21,18 @@ export async function isGitRepo(root: string): Promise<boolean> {
   }
 }
 
-/** ブックが担当するディレクトリ直下のファイルだけを指す pathspec（ブック自体は除く） */
-function dirPathspec(dirRel: string): string[] {
+/**
+ * ブックが担当するディレクトリ直下のファイルだけを指す pathspec（ブック自体は除く）。
+ * subDirs に挙げたサブディレクトリ（VBA モードの vba/ など）の直下も含める
+ */
+function dirPathspec(dirRel: string, subDirs: readonly string[] = []): string[] {
   const prefix = dirRel === '' ? '' : `${dirRel}/`;
-  return [`:(top,glob)${prefix}*`, ':(top,exclude,glob)**/*.xlcode.xlsx', ':(top,exclude,glob)**/~$*'];
+  return [
+    `:(top,glob)${prefix}*`,
+    ...subDirs.map((d) => `:(top,glob)${prefix}${d}/*`),
+    ':(top,exclude,glob)**/*.xlcode.xlsx',
+    ':(top,exclude,glob)**/~$*',
+  ];
 }
 
 /** git status --porcelain=v1 -z の出力からパスを取り出す（名前変更は新しい方のパス） */
@@ -42,14 +50,18 @@ export function parseStatusZ(out: string): string[] {
 }
 
 /** 対象ディレクトリの未コミット変更（パスの一覧） */
-export async function uncommittedChanges(root: string, dirRel: string): Promise<string[]> {
+export async function uncommittedChanges(
+  root: string,
+  dirRel: string,
+  subDirs: readonly string[] = [],
+): Promise<string[]> {
   const out = await git(root, [
     'status',
     '--porcelain=v1',
     '-z',
     '--untracked-files=all',
     '--',
-    ...dirPathspec(dirRel),
+    ...dirPathspec(dirRel, subDirs),
   ]);
   return parseStatusZ(out);
 }
@@ -58,9 +70,16 @@ export async function uncommittedChanges(root: string, dirRel: string): Promise<
  * Build / Sync 直前の自動コミット（8.3）。対象ディレクトリ直下のみをコミットする。
  * 変更が無ければ何もしない。
  */
-export async function autoCommit(root: string, dirRel: string, message: string): Promise<boolean> {
-  const spec = dirPathspec(dirRel);
-  if ((await uncommittedChanges(root, dirRel)).length === 0) return false;
+export async function autoCommit(
+  root: string,
+  dirRel: string,
+  message: string,
+  subDirs: readonly string[] = [],
+): Promise<boolean> {
+  const changes = await uncommittedChanges(root, dirRel, subDirs);
+  if (changes.length === 0) return false;
+  // 変更のあったパスだけを指定する（まだ無いフォルダ（vba/ など）を指定すると git がエラーにするため）
+  const spec = changes.map((p) => `:(top,literal)${p}`);
   await git(root, ['add', '-A', '--', ...spec]);
   const staged = await git(root, ['diff', '--cached', '--name-only', '--', ...spec]);
   if (staged.trim() === '') return false;

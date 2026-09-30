@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Confirmation, OpResult } from '../../core';
+import type { Confirmation, OpResult, ProjectMode } from '../../core';
 import type { ExcelMode, OpenVia, ProjectInfo, SyncReport } from '../../shared/api';
 import { api, storageGet, storageSet, unwrap } from './api';
 import { BookView } from './components/BookView';
@@ -30,6 +30,9 @@ const ACTION_LABEL: Record<string, string> = {
   'reformat-sheet': 'シート整形',
   'conflict-sheet': '衝突シート作成',
   commit: '自動コミット',
+  'write-module': 'VBA 書き込み',
+  'delete-module': 'VBA 削除',
+  backup: '上書き前のバックアップ',
 };
 
 function now(): string {
@@ -185,7 +188,7 @@ export function App() {
 
   const askConfirmations = useCallback(
     async (label: string, cs: Confirmation[]): Promise<boolean> => {
-      const danger = cs.some((c) => c.kind === 'delete' || c.kind === 'shrink');
+      const danger = cs.some((c) => c.kind === 'delete' || c.kind === 'shrink' || c.kind === 'overwrite');
       const { value } = await ask({
         title: `${label} の前に確認してください`,
         icon: 'warning',
@@ -193,7 +196,11 @@ export function App() {
           <div className="flex flex-col gap-3">
             {cs.map((c) => (
               <div key={c.kind}>
-                <div className={clsx(c.kind === 'shrink' || c.kind === 'delete' ? 'text-warn' : 'text-fg')}>
+                <div
+                  className={clsx(
+                    c.kind === 'shrink' || c.kind === 'delete' || c.kind === 'overwrite' ? 'text-warn' : 'text-fg',
+                  )}
+                >
                   {c.message}
                 </div>
                 {c.files.length > 0 && (
@@ -449,11 +456,18 @@ export function App() {
     [root],
   );
 
-  /** Excel 側・OneDrive 側の準備ができているか（Build / Sync / 開く の前） */
+  const vbaMode = project?.mode === 'vba';
+
+  /**
+   * Excel 側・OneDrive 側の準備ができているか（Build / Sync / 開く の前）。
+   * VBA モードはブックに書き込まないため、Web 版で閉じたかの確認は省く（編集が届いているかは確認する）
+   */
   const ready = useCallback(
     async (book: string, label: string) =>
-      (await confirmWebClosed(book)) && (await waitForOneDrive(book, label)) && (await checkWebEdits(book, label)),
-    [confirmWebClosed, waitForOneDrive, checkWebEdits],
+      (vbaMode || (await confirmWebClosed(book))) &&
+      (await waitForOneDrive(book, label)) &&
+      (await checkWebEdits(book, label)),
+    [confirmWebClosed, waitForOneDrive, checkWebEdits, vbaMode],
   );
 
   const onBuild = useCallback(
@@ -481,10 +495,12 @@ export function App() {
   /** 5.5-2: Sync → 起動を1操作にまとめる */
   const onOpenExcel = useCallback(
     (book: string, via: OpenVia) =>
-      withBusy('Sync して Excel を起動中', async () => {
-        if (!(await ready(book, 'Sync'))) return;
-        setBusy('Sync して Excel を起動中');
-        if (!(await syncFlow(book))) return;
+      withBusy(vbaMode ? 'Excel を起動中' : 'Sync して Excel を起動中', async () => {
+        if (!vbaMode) {
+          if (!(await ready(book, 'Sync'))) return;
+          setBusy('Sync して Excel を起動中');
+          if (!(await syncFlow(book))) return;
+        }
         // Web 版は、Sync で書き換えたブックが OneDrive にアップロードされてから開く（古い内容が表示されないように）
         if (via === 'web' && !(await waitForOneDrive(book, '開く'))) return;
         const opened = await api.openInExcel(root!, book, via);
@@ -512,7 +528,7 @@ export function App() {
         log('info', via === 'web' ? `Web 版 Excel で開きました: ${url}` : `デスクトップ版 Excel で開きました: ${book}`);
       }),
 
-    [withBusy, ready, syncFlow, root, log, ask, waitForOneDrive],
+    [withBusy, ready, syncFlow, root, log, ask, waitForOneDrive, vbaMode],
   );
 
   const onRefreshTree = useCallback(
@@ -589,10 +605,52 @@ export function App() {
     [withBusy, ask, project, root, log],
   );
 
+  /** プロジェクトの種類を選ぶ（最初のブックを作るとき）。キャンセルなら null */
+  const chooseMode = useCallback(async (): Promise<ProjectMode | null> => {
+    const { value } = await ask<ProjectMode | null>({
+      title: 'プロジェクトの種類を選んでください',
+      icon: 'info',
+      body: (
+        <div className="flex flex-col gap-3">
+          <div>
+            <div className="text-fg">ソースコード</div>
+            <div className="text-[12px] text-muted">
+              シートをソースコードのファイルとして書き出します（Build / Sync）。1 シート = 1 ファイル。
+            </div>
+          </div>
+          <div>
+            <div className="text-fg">VBA</div>
+            <div className="text-[12px] text-muted">
+              UI・データのシートと、.bas / .cls / .frm のシートを 1 冊で編集します。Build
+              すると、拡張子付きのシートを除き VBA を書き込んだ .xlsm をプロジェクトのフォルダに作ります。Windows
+              のデスクトップ版 Excel と「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」の設定が必要です。
+            </div>
+          </div>
+          <div className="text-[12px] text-faint">あとから変えることはできません。</div>
+        </div>
+      ),
+      buttons: [
+        { label: 'ソースコード', value: 'source', variant: 'primary' },
+        { label: 'VBA', value: 'vba', variant: 'primary' },
+        { label: 'キャンセル', value: null },
+      ],
+      cancelValue: null,
+    });
+    return value;
+  }, [ask]);
+
   const onCreateBook = useCallback(
     (dirRel: string) =>
       withBusy('ブック作成中', async () => {
         const name = (dirRel.split('/').pop() || project?.name) ?? '';
+        let pmode = project?.mode ?? 'source';
+        if (project && !project.modeSet) {
+          const chosen = await chooseMode();
+          if (!chosen) return;
+          await unwrap(api.setProjectMode(root!, chosen));
+          log('info', `プロジェクトの種類: ${chosen === 'vba' ? 'VBA' : 'ソースコード'}`);
+          pmode = chosen;
+        }
         const { value } = await ask({
           title: 'ブックを作成しますか？',
           icon: 'info',
@@ -604,7 +662,10 @@ export function App() {
                   {dirRel ? `${dirRel}/` : ''}
                   {name}.xlcode.xlsx
                 </span>{' '}
-                を作成し、{dirRel || 'ルート'} のファイルをシートとして取り込みます。
+                を作成し、
+                {pmode === 'vba'
+                  ? `Agents.md などのルールのシートを入れます（${dirRel ? `${dirRel}/` : ''}vba/ に控えがあれば、そのコードもシートにします）。Build 結果は ${dirRel ? `${dirRel}/` : ''}${name}.xlsm です。`
+                  : `${dirRel || 'ルート'} のファイルをシートとして取り込みます。`}
               </p>
               <p className="mt-2 text-muted">
                 あわせて .gitignore に xlCode 用の除外（*.xlcode.xlsx, ~$*,
@@ -626,7 +687,7 @@ export function App() {
         setSelected(r.book);
         setView('books');
       }),
-    [withBusy, ask, root, project, log],
+    [withBusy, ask, root, project, log, chooseMode],
   );
 
   const openProject = useCallback(
@@ -789,14 +850,14 @@ export function App() {
       } else if (k === 'b' && selected) {
         e.preventDefault();
         void onBuild(selected);
-      } else if (k === 's' && e.shiftKey && selected) {
+      } else if (k === 's' && e.shiftKey && selected && !vbaMode) {
         e.preventDefault();
         void onSync(selected);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [pickProject, onBuild, onSync, selected]);
+  }, [pickProject, onBuild, onSync, selected, vbaMode]);
 
   const problems = useMemo<Problem[]>(() => {
     if (!project) return [];
@@ -945,6 +1006,7 @@ export function App() {
                 key={ruleRel}
                 root={project.root}
                 rel={ruleRel}
+                vba={project.mode === 'vba'}
                 draft={drafts[ruleRel]}
                 onDraft={setDraft}
                 onError={(m) => log('error', m)}
@@ -971,6 +1033,12 @@ export function App() {
                   void unwrap(api.revealInFolder(project.root, book.rel)).catch((e: Error) => log('error', e.message))
                 }
                 onRefreshTree={() => void onRefreshTree()}
+                projectMode={project.mode}
+                onOpenOutput={(reveal) =>
+                  void unwrap(api.openOutput(project.root, book.rel, reveal)).catch((e: Error) =>
+                    log('error', e.message),
+                  )
+                }
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-muted">

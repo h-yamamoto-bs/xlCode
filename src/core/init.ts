@@ -5,7 +5,9 @@ import { excelPathError, listSourceFiles, readTextFile } from './fsutil';
 import { textToLines } from './normalize';
 import { bookPathFor, bookRef, bookRootOf, booksInDir, openProject } from './project';
 import { bookState, saveState } from './state';
-import { applyTreeToBook, computeTree, readRootAgents } from './tree';
+import { loadConfig } from './config';
+import { readCopies } from './vba';
+import { applyTreeToBook, computeTree, readLocalAgents, readRootAgents } from './tree';
 import { isCodeName, validateFileName } from './sheetName';
 import { Book } from './workbook';
 
@@ -25,6 +27,49 @@ const LOCAL_AGENTS_TEMPLATE = `# LocalAgents.md
 - このディレクトリ固有のルールを書く
 `;
 
+const VBA_AGENTS_TEMPLATE = `# Agents.md
+
+- VBA のコードを書く。1シート = 1モジュール。A列に1行ずつ書く
+- シート名はモジュール名＋拡張子（31文字以内）
+  - 標準モジュール: Module1.bas / クラスモジュール: Class1.cls / ユーザーフォーム: UserForm1.frm
+  - シートのイベント: 「シート名.cls」、ブックのイベント: ThisWorkbook.cls
+- 各モジュールの先頭に Option Explicit を書く。Attribute 行は書かない
+- 拡張子のないシートは画面（UI）とデータ。指示が無い限り中身を変えない
+- 「#」で始まるシート、Agents.md・LocalAgents.md シートは編集しない
+- ユーザーフォームは、先頭に配置を書き、その後にコードを書く
+
+\`\`\`vb
+Begin UserForm UserForm1
+   Caption = "顧客登録"
+   Width = 300
+   Height = 200
+   Begin TextBox txtName
+      Left = 80
+      Top = 12
+      Width = 150
+   End
+   Begin CommandButton btnOK
+      Caption = "登録"
+      Left = 150
+      Top = 150
+   End
+End
+
+Private Sub btnOK_Click()
+    MsgBox txtName.Value
+End Sub
+\`\`\`
+
+- 使えるコントロール: Label, TextBox, CommandButton, ComboBox, ListBox, CheckBox, OptionButton, ToggleButton, Frame, MultiPage（中に Page）, TabStrip, ScrollBar, SpinButton, Image
+- 値は 文字列 "…"・数値・True / False・&H8000000F& のように書く。定数名（fmBorderStyleSingle など）は数値で書く
+`;
+
+const VBA_LOCAL_AGENTS_TEMPLATE = `# LocalAgents.md
+
+- このツール固有のルールを書く
+- UI シートの構成（どのシートの何のセルに何があるか、ボタンに登録するマクロ名など）を書いておくと、Copilot が正しいコードを書きやすくなる
+`;
+
 async function exists(p: string): Promise<boolean> {
   try {
     await access(p);
@@ -41,6 +86,7 @@ async function exists(p: string): Promise<boolean> {
  */
 export async function initProject(root: string): Promise<string[]> {
   const done: string[] = [];
+  const vba = (await loadConfig(root)).mode === 'vba';
   const gi = path.join(root, '.gitignore');
   const current = (await readFile(gi, 'utf8').catch(() => '')).split(/\r?\n/).map((l) => l.trim());
   const missing = GITIGNORE_ENTRIES.filter((e) => !current.includes(e));
@@ -51,7 +97,7 @@ export async function initProject(root: string): Promise<string[]> {
   }
   const agents = path.join(root, AGENTS_SHEET);
   if (!(await exists(agents))) {
-    await writeFile(agents, AGENTS_TEMPLATE);
+    await writeFile(agents, vba ? VBA_AGENTS_TEMPLATE : AGENTS_TEMPLATE);
     done.push('Agents.md を作成');
   }
   return done;
@@ -75,16 +121,32 @@ export async function createBook(root: string, dirAbs: string): Promise<CreateBo
   await mkdir(path.dirname(bookAbs), { recursive: true });
   const ref = bookRef(root, bookAbs, bookRoot);
 
+  const vba = ctx.config.mode === 'vba';
   const localAgents = path.join(dirAbs, LOCAL_AGENTS_SHEET);
-  if (!(await exists(localAgents))) await writeFile(localAgents, LOCAL_AGENTS_TEMPLATE);
+  if (!(await exists(localAgents)))
+    await writeFile(localAgents, vba ? VBA_LOCAL_AGENTS_TEMPLATE : LOCAL_AGENTS_TEMPLATE);
 
   // 作成するブック自身も #tree に載るよう、先に空のブックを保存してからツリーを取る
   const book = Book.create();
   await book.save(bookAbs);
-  applyTreeToBook(book, await computeTree(root, ctx.ig), await readRootAgents(root));
   const bs = bookState(ctx.state, ref.rel);
   const sheets: string[] = [];
   const skipped: string[] = [];
+  if (vba) {
+    // VBA モード: ルールのシートと、控え（vba/）があればそのコードをシートにする
+    applyTreeToBook(book, await computeTree(root, ctx.ig), await readRootAgents(root), await readLocalAgents(dirAbs));
+    for (const c of await readCopies(dirAbs)) {
+      book.writeLines(c.sheet, c.lines);
+      sheets.push(c.sheet);
+    }
+    if (sheets.length === 0) book.writeLines('Module1.bas', ['Option Explicit', '']);
+    await book.save(bookAbs);
+    // 控えから作ったシートは、次の Build で「未ビルド」として扱う（ビルド結果が控えと同じとは限らないため）
+    bs.files = {};
+    await saveState(root, ctx.state);
+    return { book: ref.rel, sheets, skipped };
+  }
+  applyTreeToBook(book, await computeTree(root, ctx.ig), await readRootAgents(root));
   const files = await listSourceFiles(root, dirAbs, ctx.ig);
   // LocalAgents.md を先頭に
   files.sort((a, b) => Number(b.name === LOCAL_AGENTS_SHEET) - Number(a.name === LOCAL_AGENTS_SHEET));

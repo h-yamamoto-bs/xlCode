@@ -66,7 +66,6 @@ export class Book {
   }
 
   static async load(file: string): Promise<Book> {
-    const wb = new ExcelJS.Workbook();
     // ExcelJS の readFile はパスの扱いが環境依存なので Buffer 経由で読む
     let buf: Buffer;
     try {
@@ -80,6 +79,12 @@ export class Book {
         { cause: e },
       );
     }
+    return Book.fromBuffer(buf, file);
+  }
+
+  /** 読み込み済みのファイルの中身から開く（file はエラー表示用） */
+  static async fromBuffer(buf: Uint8Array, file: string): Promise<Book> {
+    const wb = new ExcelJS.Workbook();
     try {
       await wb.xlsx.load(buf as unknown as ArrayBuffer);
     } catch (e) {

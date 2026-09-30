@@ -35,7 +35,9 @@ export type FileStatus =
   | 'source-deleted'
   | 'sheet-missing'
   | 'conflict'
-  | 'gone';
+  | 'gone'
+  /** VBA モード: 前回 Build したシートが無くなった（次の Build でモジュールを削除） */
+  | 'removed';
 
 export interface FileEntry {
   name: string;
@@ -83,7 +85,9 @@ export async function scanBook(ctx: ProjectContext, ref: BookRef): Promise<Scan>
   const books = await booksInDir(path.dirname(ref.abs));
   if (books.length > 1) errors.push(`同一ディレクトリに複数の .xlcode.xlsx があります: ${books.join(', ')}`);
   if (!(await exists(ref.dirAbs))) {
-    errors.push(`ブックに対応するソースのフォルダがありません: ${ref.dirAbs}（ブックの置き場所の設定を確認してください）`);
+    errors.push(
+      `ブックに対応するソースのフォルダがありません: ${ref.dirAbs}（ブックの置き場所の設定を確認してください）`,
+    );
     return { book: await Book.load(ref.abs), ref, errors, warnings, entries: [], deletes: [], conflictSheets: [] };
   }
   const copies = (await readdir(path.dirname(ref.abs))).filter(isBookCopy);

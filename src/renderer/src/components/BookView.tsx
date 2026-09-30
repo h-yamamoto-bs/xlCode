@@ -1,7 +1,8 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
+import type { ProjectMode } from '../../../core';
 import type { BookSummary, BookSync, ExcelMode, OpenVia } from '../../../shared/api';
-import { EXCEL_SIDE, SOURCE_SIDE, STATUS, SYNC_META } from '../status';
+import { EXCEL_SIDE, SOURCE_SIDE, STATUS, SYNC_META, VBA_STATUS } from '../status';
 import { Icon } from './Icons';
 import { Button } from './ui';
 
@@ -56,7 +57,12 @@ export function BookView({
   onTerminal,
   onReveal,
   onRefreshTree,
+  projectMode = 'source',
+  onOpenOutput,
 }: {
+  projectMode?: ProjectMode;
+  /** VBA モード: ビルド結果を開く（reveal ならフォルダで表示） */
+  onOpenOutput?: (reveal: boolean) => void;
   book: BookSummary;
   treeVersion: string;
   busy: boolean;
@@ -77,6 +83,10 @@ export function BookView({
   const clean = files.filter((f) => f.status === 'clean');
   const fileName = book.rel.split('/').pop()!;
   const disabled = busy || book.open;
+  const vba = projectMode === 'vba';
+  const removed = files.filter((f) => f.status === 'removed');
+  const out = book.vba;
+  const outName = out?.output.split(/[\\/]/).pop();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -99,7 +109,7 @@ export function BookView({
             variant="primary"
             onClick={() => onOpenExcel('desktop')}
             disabled={disabled}
-            title="Sync してからデスクトップ版 Excel で開く"
+            title={vba ? 'デスクトップ版 Excel で開く' : 'Sync してからデスクトップ版 Excel で開く'}
           >
             <Icon.Desktop size={15} />
             {mode === 'both' ? 'デスクトップで開く' : 'Excelで開く'}
@@ -110,20 +120,36 @@ export function BookView({
             variant={mode === 'web' ? 'primary' : 'secondary'}
             onClick={() => onOpenExcel('web')}
             disabled={disabled}
-            title="Sync してから Web 版 Excel（ブラウザ）で開く"
+            title={vba ? 'Web 版 Excel（ブラウザ）で開く' : 'Sync してから Web 版 Excel（ブラウザ）で開く'}
           >
             <Icon.Cloud size={15} />
             {mode === 'both' ? 'Webで開く' : 'Excelで開く'}
           </Button>
         )}
-        <Button onClick={onSync} disabled={disabled} title="ソースコード → Excel">
-          <Icon.Sync size={15} />
-          Sync
-        </Button>
-        <Button onClick={onBuild} disabled={disabled} title="Excel → ソースコード">
+        {!vba && (
+          <Button onClick={onSync} disabled={disabled} title="ソースコード → Excel">
+            <Icon.Sync size={15} />
+            Sync
+          </Button>
+        )}
+        <Button
+          onClick={onBuild}
+          disabled={disabled}
+          title={vba ? 'シートの VBA を書き込んだ .xlsm を生成する' : 'Excel → ソースコード'}
+        >
           <Icon.Build size={15} />
           Build
         </Button>
+        {vba && (
+          <Button
+            onClick={() => onOpenOutput?.(false)}
+            disabled={busy || !out?.exists}
+            title="ビルド結果の .xlsm をデスクトップ版 Excel で開く"
+          >
+            <Icon.Excel size={15} />
+            ビルド結果を開く
+          </Button>
+        )}
         <div className="mx-1 h-4 w-px bg-line" />
         <Button onClick={onTerminal} disabled={busy} title="OS のターミナルをこのディレクトリで開く">
           <Icon.Terminal size={15} />
@@ -184,6 +210,28 @@ export function BookView({
               #tree が最新ではありません。Refresh Tree を実行してください。
             </Banner>
           )}
+          {vba && out && (
+            <Banner
+              kind={out.changed ? 'warning' : 'info'}
+              action={
+                out.exists && (
+                  <Button onClick={() => onOpenOutput?.(true)} disabled={busy} className="shrink-0">
+                    <Icon.Reveal size={14} />
+                    フォルダ
+                  </Button>
+                )
+              }
+            >
+              ビルド結果: <span className="font-mono break-all">{out.output}</span>
+              <div className="text-[12px] text-muted">
+                {!out.exists
+                  ? 'まだ Build していません。Build すると、拡張子付きのシートを除き、VBA を書き込んだ .xlsm を作ります。'
+                  : out.changed
+                    ? `${outName} が前回の Build の後に変更されています。次の Build で作り直すと、直接入力したデータや VBE で直したコードは失われます（元のファイルは .xlcode/backup に残します）。`
+                    : 'ビルド結果は Build のたびに作り直します。データの入力やコードの修正は、ビルド結果ではなく編集用ブックで行ってください。'}
+              </div>
+            </Banner>
+          )}
           {(book.deletes?.length ?? 0) > 0 && (
             <Banner kind="warning">
               削除マーク付きのシート: <span className="font-mono">{book.deletes!.join(', ')}</span>（Build
@@ -191,27 +239,40 @@ export function BookView({
             </Banner>
           )}
 
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Stat label="Excel側で編集中" value={excel.length} color="text-modified" hint="Build で反映" />
-            <Stat label="エディタ側で変更" value={source.length} color="text-info" hint="Sync で取り込み" />
-            <Stat label="両側で変更" value={conflict.length} color="text-conflict" hint="衝突シートで統合" />
-            <Stat label="同期済み" value={clean.length} color="text-fg" hint={`全 ${files.length} ファイル`} />
-          </div>
+          {vba ? (
+            <div className="grid grid-cols-3 gap-3">
+              <Stat label="未ビルドの変更" value={excel.length} color="text-modified" hint="Build で書き込み" />
+              <Stat label="削除したシート" value={removed.length} color="text-deleted" hint="Build でモジュール削除" />
+              <Stat
+                label="ビルド済み"
+                value={clean.length}
+                color="text-fg"
+                hint={`全 ${files.length - removed.length} モジュール`}
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Stat label="Excel側で編集中" value={excel.length} color="text-modified" hint="Build で反映" />
+              <Stat label="エディタ側で変更" value={source.length} color="text-info" hint="Sync で取り込み" />
+              <Stat label="両側で変更" value={conflict.length} color="text-conflict" hint="衝突シートで統合" />
+              <Stat label="同期済み" value={clean.length} color="text-fg" hint={`全 ${files.length} ファイル`} />
+            </div>
+          )}
 
           <div className="overflow-hidden rounded-[3px] border border-line">
             <table className="w-full border-collapse text-left">
               <thead>
                 <tr className="h-[26px] bg-side text-[11px] text-muted uppercase">
                   <th className="w-10 px-3 font-normal" />
-                  <th className="px-2 font-normal">ファイル（シート）</th>
+                  <th className="px-2 font-normal">{vba ? 'シート' : 'ファイル（シート）'}</th>
                   <th className="px-2 font-normal">状態</th>
-                  <th className="px-2 font-normal">形式</th>
+                  <th className="px-2 font-normal">{vba ? '種類' : '形式'}</th>
                   <th className="px-3 font-normal">次の操作</th>
                 </tr>
               </thead>
               <tbody>
                 {files.map((f) => {
-                  const m = STATUS[f.status];
+                  const m = vba ? (VBA_STATUS[f.status] ?? STATUS[f.status]) : STATUS[f.status];
                   return (
                     <tr key={f.name} className="h-[24px] border-t border-line hover:bg-hover">
                       <td className={clsx('px-3 text-center font-mono text-[12px]', m.color)}>
@@ -227,7 +288,7 @@ export function BookView({
                 {files.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-3 py-3 text-[12px] text-faint">
-                      コードシートがありません
+                      {vba ? 'VBA のシート（.bas / .cls / .frm）がありません' : 'コードシートがありません'}
                     </td>
                   </tr>
                 )}

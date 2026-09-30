@@ -14,6 +14,8 @@ export interface BookState {
   files: Record<string, FileState>;
   lastBuildAt?: string;
   lastSyncAt?: string;
+  /** VBA モード: 前回 Build で生成した .xlsm の SHA-256（その後に直接変更されたかの判定に使う） */
+  outputHash?: string;
 }
 
 /** .xlcode/state.json（3.9）。books のキーはプロジェクトルートからのブックの相対パス */

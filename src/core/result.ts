@@ -10,7 +10,7 @@ export type OpStatus =
   /** Sync 時に未 Build のシート変更がある（5.1 の A/B/C を選ばせる） */
   | 'needs-decision';
 
-export type ConfirmationKind = 'shrink' | 'delete' | 'uncommitted' | 'no-git';
+export type ConfirmationKind = 'shrink' | 'delete' | 'uncommitted' | 'no-git' | 'overwrite';
 
 export interface Confirmation {
   kind: ConfirmationKind;
@@ -19,7 +19,16 @@ export interface Confirmation {
 }
 
 export type ChangeAction =
-  'write-file' | 'delete-file' | 'write-sheet' | 'delete-sheet' | 'reformat-sheet' | 'conflict-sheet' | 'commit';
+  | 'write-file'
+  | 'delete-file'
+  | 'write-sheet'
+  | 'delete-sheet'
+  | 'reformat-sheet'
+  | 'conflict-sheet'
+  | 'commit'
+  | 'write-module'
+  | 'delete-module'
+  | 'backup';
 
 export interface Change {
   action: ChangeAction;

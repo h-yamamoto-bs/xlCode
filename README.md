@@ -10,6 +10,7 @@ Excel in Copilot（Web）を疑似的なコーディングエージェントと�
 | 1 | 動作確認用 CLI | ✅ 完了 |
 | 2 | Electron + React GUI（VS Code 風ダークテーマ） | ✅ 完了 |
 | 3 | Windows 固有機能（Excel 起動・OneDrive 同期待ち・ターミナル起動） | 未着手（Windows での確認が必要） |
+| 4 | VBA モード（.bas / .cls / .frm のシート → .xlsm） | 実装・テスト済み（Excel での書き込みは Windows での確認が必要） |
 
 ## npm install できない環境で使う
 
@@ -198,6 +199,30 @@ Excel のセルには文字しか入らないため、ファイルごとの形�
 - Web 版で開いたブックは、開いた時点の更新日時を覚えておき、Build / Sync の前にまだ変わっていなければ「Web 版での編集が届いていない可能性」を知らせる
 - Refresh Tree は、#tree と Agents.md が最新のブックを保存しない（Web 版で編集中のブックとの同期の衝突を避ける）
 - 判定は Windows のシェルプロパティによる。値の意味は未確認（[docs/windows-checklist.md](docs/windows-checklist.md) の 7）
+
+## VBA モード
+
+最初のブックを作るときに「ソースコード」か「VBA」かを選ぶ（`.xlcode/config.json` の `mode`。あとから変更不可）。
+
+```
+<ブックの置き場所>/販売管理.xlcode.xlsx   編集用。UI・データのシートと、VBA のシート（Copilot で編集）
+        │ Build（Windows のデスクトップ版 Excel で書き込む）
+        ▼
+<プロジェクト>/販売管理.xlsm               ビルド結果。拡張子付きのシートを除き、VBA を書き込んだもの
+<プロジェクト>/vba/Module1.bas など         Git 用の控え（Shift_JIS・CRLF。xlCode は読み込まない）
+```
+
+- シート名と書き込み先
+  - `Module1.bas` → 標準モジュール、`Class1.cls` → クラスモジュール、`UserForm1.frm` → ユーザーフォーム
+  - `ThisWorkbook.cls` → ブックのコード、`<UI シート名>.cls` → そのシートのコード（`Sheet1.cls` のようにコード名でもよい）
+  - 拡張子のないシートは UI・データとしてそのまま残す。`Agents.md`・`#tree` などはビルド結果から除く
+- シートにはコードだけを書く（`Attribute` 行は不要。書かれていれば除いて書き込む）
+- ユーザーフォームは、先頭に `Begin UserForm UserForm1` 〜 `End` で配置を書き、その後にコードを書く（書き方は Agents.md の雛形を参照）。フォームは Build のときに VBE の機能（`Designer.Controls.Add`）で組み立てる
+- 正は編集用ブック。ビルド結果は Build のたびに作り直すため、ビルド結果に直接入力したデータや VBE で直したコードは次の Build で消える（変更されていれば確認し、`.xlcode/backup/` に 5 世代残す）
+- Sync は無い。`LocalAgents.md` は Refresh Tree でシートへ配布する
+- Build の流れ: 編集用ブックから拡張子付きのシートを除いたコピーを作る → PowerShell から画面に出ない Excel を起動（マクロ無効・確認ダイアログなし・イベント停止・自動保存オフ）→ VBA を書き込んで .xlsm で保存 → ビルド結果を置き換え、控えを書き出す。途中で失敗したらビルド結果・控えは変えない。3 分で終わらなければ Excel を強制終了する
+- 必要なもの: Windows、デスクトップ版 Excel、「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」
+- 編集用ブックに書き込まないため、Web 版で開いたままでも Build できる（デスクトップ版で開いている場合は、保存していない変更があり得るので止める）
 
 ## 技術スタックの補足
 
