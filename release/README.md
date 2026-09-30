@@ -2,8 +2,8 @@
 
 | 場所 | 中身 |
 |---|---|
-| `installer/` | Windows 用インストーラー（1.2.0 preview 3、コミット 19a5cf9） |
-| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（コミット 19a5cf9） |
+| `installer/` | Windows 用インストーラー（1.3.0 preview 4、コミット 2df58e3） |
+| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（コミット 2df58e3） |
 
 どちらも GitHub の 1 ファイル 100MB 制限に収まるよう分割している。
 
@@ -11,7 +11,7 @@
 
 npm install できない環境向けの一式。
 
-- ソース一式（コミット 19a5cf9・main。`release/` は除く）
+- ソース一式（コミット 2df58e3・main。`release/` は除く）
 - **Windows x64 用**の `node_modules`（Electron 本体、esbuild・Rollup・Tailwind・lightningcss の win32-x64 版、iconv-lite を含む）
 - `package.json` / `package-lock.json`
 - **Git の履歴（`.git`）は含まない。** 履歴はこのリポジトリから取得する
@@ -27,6 +27,6 @@ Linux / macOS では `node_modules` の中身が合わないため、そのま�
 ### 確認用
 
 xlCode-src-win.zip の SHA-256:
-`d852db04b6617621a3c11c9ffb52f64ef7904bc77ccd2f84f24df6b7f0902447`
+`ded49f09d0fa8bd5f000af2f797a714b939654a41c2d046aa013552f6966087a`
 
 Windows では `certutil -hashfile xlCode-src-win.zip SHA256` で確認できる。
