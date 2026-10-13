@@ -40,7 +40,7 @@ cd xlCode
    certutil -hashfile release\xlCode-src-win.zip SHA256
    ```
 
-   `51b3819a0400b984634c940033505efb0777558065f78b7e951882324a180473` と一致すれば OK
+   `46dc76e6a58274ea7a4c49529d9ac922914316ea65ecd7daaefd3337b300537c` と一致すれば OK
 4. 展開する。エクスプローラーの展開は遅く、長いパスで失敗しやすいので `tar` を使う
 
    ```bat

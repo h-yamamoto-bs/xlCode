@@ -193,7 +193,7 @@ const ITEMS = [
   { id: 'I-4', cat: 'install', pri: 'high', tag: 'base', title: '1.5.x からの上書きインストール', steps: '1.5.2 や 1.6.0 を入れた PC で 1.7.0 を実行', expect: 'そのまま上書きされ、最近使ったプロジェクト・使う Excel の設定が残る' },
   { id: 'I-5', cat: 'install', pri: 'mid', tag: 'base', title: '会社のセキュリティ設定（AppLocker 等）', steps: '%LOCALAPPDATA%\\Programs から起動', expect: '起動できる。止められるなら「すべてのユーザー」（Program Files）で起動できる' },
   { id: 'I-6', cat: 'install', pri: 'mid', tag: 'base', title: '2 つ目の起動は 1 つ目を前面にする', steps: '起動中にもう一度ショートカットを押す', expect: '新しいウィンドウは開かず、既存のウィンドウが前面に出る' },
-  { id: 'I-7', cat: 'install', pri: 'mid', tag: 'base', title: 'ソース版（xlCode-src-win.zip）で npm run dev', steps: 'release\\join.bat → tar -xf → npm run dev（Node.js 22 以上）', expect: 'npm install なしで起動する。1.7.0 のソースと 1.6.0 の node_modules（依存は同じ）の組み合わせで動く' },
+  { id: 'I-7', cat: 'install', pri: 'mid', tag: 'base', title: 'ソース版（xlCode-src-win.zip）で npm run dev', steps: 'release\\join.bat → tar -xf → npm run dev（Node.js 22 以上）', expect: 'npm install なしで起動する。1.7.0 のソースと node_modules の組み合わせで動く' },
   // メニュー削除とウィンドウ
   { id: 'M-1', cat: 'menu', pri: 'high', tag: 'new', title: 'Ctrl+W がウィンドウを閉じない', steps: 'ブックのタブを 2 つ開いて Ctrl+W', expect: 'タブだけが閉じる。タブが 0 枚の状態で Ctrl+W を押してもウィンドウは閉じない' },
   { id: 'M-2', cat: 'menu', pri: 'high', tag: 'new', title: 'Ctrl+R が画面を再読み込みしない', steps: 'Ctrl+R', expect: '「最近使用したプロジェクト」のパレットが出る。画面が白くなったり出力パネルが消えたりしない' },
