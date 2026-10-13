@@ -86,7 +86,7 @@ async function main(): Promise<void> {
     }
     default:
       console.log(`使い方: npx tsx src/cli.ts <command> [project] [book|dir]
-  init   <project>                 .gitignore と Agents.md を用意
+  init   <project>                 .gitignore・Agents.md・.xlcodeignore を用意
   create <project> <dir>           ディレクトリにブックを作成
   status <project> <book>          各ファイルの状態
   build  <project> <book> [--yes]  Excel → ソース

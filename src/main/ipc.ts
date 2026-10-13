@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import {
   AGENTS_SHEET,
+  IGNORE_FILE,
   LOCAL_AGENTS_SHEET,
   bookDiff,
   bookStatus,
@@ -14,7 +15,10 @@ import {
   findBooks,
   gitSummary,
   initProject,
-  bookPathFor,
+  ignoreRules,
+  isCodeName,
+  listDirsWithoutBook,
+  previewDirFiles,
   bookRef,
   bookRootOf,
   loadConfig,
@@ -30,10 +34,11 @@ import {
   vbaOutputPath,
   createBookFromTool,
   TOOL_EXTENSIONS,
+  type RelocateOptions,
   type XlcodeConfig,
 } from '../core';
 import { atomicWrite } from '../core/atomic';
-import { excelPathError, isBookFile, isIgnored, toPosixRel } from '../core/fsutil';
+import { excelPathError, toPosixRel } from '../core/fsutil';
 import { exists } from '../core/project';
 import type { BookSummary, OpenVia, ProjectInfo, Result } from '../shared/api';
 import {
@@ -75,25 +80,6 @@ async function bookAbsOf(root: string, rel: string): Promise<string> {
   return resolveBook(await bookRootFor(root), rel);
 }
 
-async function dirsWithoutBook(root: string, bookRoot: string): Promise<string[]> {
-  const ig = await loadIgnore(root);
-  const separate = path.resolve(bookRoot) !== path.resolve(root);
-  const out: string[] = [];
-  async function walk(dirAbs: string): Promise<void> {
-    const entries = await readdir(dirAbs, { withFileTypes: true });
-    const hasBook = separate
-      ? await exists(bookPathFor(root, bookRoot, dirAbs))
-      : entries.some((e) => e.isFile() && isBookFile(e.name));
-    if (!hasBook) out.push(toPosixRel(root, dirAbs));
-    for (const e of entries) {
-      const abs = path.join(dirAbs, e.name);
-      if (e.isDirectory() && !isIgnored(ig, toPosixRel(root, abs), true)) await walk(abs);
-    }
-  }
-  await walk(root);
-  return out.sort();
-}
-
 async function loadProject(root: string): Promise<ProjectInfo> {
   const ig = await loadIgnore(root);
   const tree = await computeTree(root, ig);
@@ -115,10 +101,22 @@ async function loadProject(root: string): Promise<ProjectInfo> {
       });
     }
   }
-  const hasAgents = await readFile(path.join(root, AGENTS_SHEET)).then(
-    () => true,
-    () => false,
-  );
+  const hasAgents = await exists(path.join(root, AGENTS_SHEET));
+  // 編集できるドキュメントのうち、実在するもの（無いものは画面で薄く出し、保存したときに作る）
+  const docCandidates = [
+    AGENTS_SHEET,
+    IGNORE_FILE,
+    ...books.map((b) => (b.dirRel ? `${b.dirRel}/${LOCAL_AGENTS_SHEET}` : LOCAL_AGENTS_SHEET)),
+  ];
+  const docs: string[] = [];
+  for (const d of docCandidates) if (await exists(path.join(root, ...d.split('/')))) docs.push(d);
+  const rulesOf = async (name: string) =>
+    readFile(path.join(root, name), 'utf8').then(
+      (t) => ignoreRules(t),
+      () => null,
+    );
+  const xl = await rulesOf(IGNORE_FILE);
+  const gi = await rulesOf('.gitignore');
   return {
     root,
     name: path.basename(root),
@@ -126,10 +124,12 @@ async function loadProject(root: string): Promise<ProjectInfo> {
     treeVersion: tree.version,
     git: await gitSummary(root),
     hasAgents,
-    dirsWithoutBook: await dirsWithoutBook(root, bookRoot),
+    dirsWithoutBook: await listDirsWithoutBook(root, ig, bookRoot),
     bookRoot: config.bookRoot ? bookRoot : null,
     mode: config.mode ?? 'source',
     modeSet: config.mode !== undefined,
+    docs,
+    ignore: { xlcode: xl ? xl.length : null, git: gi ? gi.length : null, gitSample: gi?.slice(0, 5) ?? [] },
   };
 }
 
@@ -203,10 +203,12 @@ async function openInWeb(root: string, abs: string): Promise<string | null> {
   );
 }
 
-const RULE_FILES = new Set([AGENTS_SHEET, LOCAL_AGENTS_SHEET]);
-
-function ruleFile(root: string, rel: string): string {
-  if (!RULE_FILES.has(path.posix.basename(rel))) throw new Error(`編集できないファイルです: ${rel}`);
+/** 画面から編集できるドキュメント。Agents.md と .xlcodeignore はルートだけ、LocalAgents.md は各フォルダ */
+function docFile(root: string, rel: string): string {
+  const base = path.posix.basename(rel);
+  const atRoot = !rel.includes('/');
+  const ok = base === LOCAL_AGENTS_SHEET || ((base === AGENTS_SHEET || base === IGNORE_FILE) && atRoot);
+  if (!ok) throw new Error(`編集できないファイルです: ${rel}`);
   return inside(root, rel);
 }
 
@@ -221,6 +223,14 @@ export function registerIpc(): void {
   ipcMain.handle('refreshTree', (_e, root: string) => wrap(() => refreshTree(root)));
   ipcMain.handle('createBook', (_e, root: string, dirRel: string) =>
     wrap(() => createBook(root, inside(root, dirRel))),
+  );
+  ipcMain.handle('previewBook', (_e, root: string, dirRel: string) =>
+    wrap(async () => {
+      const config = await loadConfig(root);
+      return previewDirFiles(root, inside(root, dirRel), await loadIgnore(root), (n) =>
+        isCodeName(n, config.extraCodeNames),
+      );
+    }),
   );
   ipcMain.handle('build', (_e, root: string, book: string, opts) =>
     wrap(async () => {
@@ -293,8 +303,8 @@ export function registerIpc(): void {
     const r = await dialog.showOpenDialog(win, { title, properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
   });
-  ipcMain.handle('relocateBooks', (_e, root: string, newRoot: string | null) =>
-    wrap(() => relocateBooks(root, newRoot)),
+  ipcMain.handle('relocateBooks', (_e, root: string, newRoot: string | null, opts?: RelocateOptions) =>
+    wrap(() => relocateBooks(root, newRoot, opts)),
   );
   ipcMain.handle('openInExcel', (_e, root: string, book: string, via: OpenVia) =>
     wrap(async () => {
@@ -335,10 +345,15 @@ export function registerIpc(): void {
   ipcMain.handle('revealInFolder', (_e, root: string, book: string) =>
     wrap(async () => shell.showItemInFolder(await bookAbsOf(root, book))),
   );
-  ipcMain.handle('readRuleFile', (_e, root: string, rel: string) =>
-    wrap(() => readFile(ruleFile(root, rel), 'utf8').catch(() => null)),
+  ipcMain.handle('readDoc', (_e, root: string, rel: string) =>
+    wrap(() =>
+      readFile(docFile(root, rel), 'utf8').catch((e: NodeJS.ErrnoException) => {
+        if (e.code === 'ENOENT') return null;
+        throw e;
+      }),
+    ),
   );
-  ipcMain.handle('writeRuleFile', (_e, root: string, rel: string, text: string) =>
-    wrap(() => atomicWrite(ruleFile(root, rel), text)),
+  ipcMain.handle('writeDoc', (_e, root: string, rel: string, text: string) =>
+    wrap(() => atomicWrite(docFile(root, rel), text)),
   );
 }

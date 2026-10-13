@@ -2,8 +2,8 @@
 
 | 場所 | 中身 |
 |---|---|
-| `installer/` | Windows 用インストーラー（1.5.2、コミット dacc9f2） |
-| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（コミット dacc9f2） |
+| `installer/` | Windows 用インストーラー（1.6.0。コミットは `installer/README.md` を参照） |
+| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（1.5.2、コミット dacc9f2。1.6.0 でも `node_modules` はそのまま使える） |
 
 どちらも GitHub の 1 ファイル 100MB 制限に収まるよう分割している。
 

@@ -3,19 +3,42 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Confirmation, OpResult, ProjectMode } from '../../core';
 import type { BookSummary, ExcelMode, OpenVia, ProjectInfo, SyncReport } from '../../shared/api';
 import { api, storageGet, storageSet, unwrap } from './api';
+import { chordPrefixes, commandLabel, findCommand, type Command } from './commands';
 import { ACTION_LABEL, BookView, type LastResult } from './components/BookView';
 import { useDialog } from './components/Dialogs';
-import { Icon } from './components/Icons';
-import { Panel, type LogEntry, type Problem } from './components/Panel';
-import { RulesEditor, RulesList, type Draft } from './components/RulesView';
-import { EXCEL_MODES, SettingsView } from './components/SettingsView';
+import { DocEditor, docKind, type Draft } from './components/DocEditor';
 import { HelpView } from './components/HelpView';
-import { Sidebar } from './components/Sidebar';
+import { Icon } from './components/Icons';
+import { Palette, type PaletteItem, type PaletteSpec } from './components/Palette';
+import { Panel, type LogEntry, type Problem } from './components/Panel';
+import { EXCEL_MODES, SettingsView, type RelocateMode } from './components/SettingsView';
+import { Sidebar, type OpenTarget } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
+import { TabBar, type TabView } from './components/TabBar';
+import { Kbd } from './components/ui';
 import { Welcome } from './components/Welcome';
+import { allowedWhileTyping, eventToKey, formatKey, isTyping } from './keys';
 import { SOURCE_SIDE, SYNC_META } from './status';
-
-type View = 'books' | 'rules' | 'settings' | 'help';
+import {
+  activate,
+  activateIndex,
+  activeTab,
+  closeAll,
+  closeOthers,
+  closeTab,
+  cycleTab,
+  deserializeTabs,
+  EMPTY_TABS,
+  moveTab,
+  openTab,
+  pinTab,
+  pruneTabs,
+  reopenClosed,
+  serializeTabs,
+  tabId,
+  type Tab,
+  type TabsState,
+} from './tabs';
 
 /** 開く前に Sync が要るか（ソース側の変更・衝突がブックにまだ反映されていない） */
 function needsSyncBeforeOpen(b: BookSummary): boolean {
@@ -33,28 +56,63 @@ function now(): string {
   return new Date().toLocaleTimeString('ja-JP', { hour12: false });
 }
 
+/** LocalAgents.md の相対パス */
+function localAgentsOf(dirRel: string): string {
+  return dirRel ? `${dirRel}/LocalAgents.md` : 'LocalAgents.md';
+}
+
 export function App() {
   const [root, setRoot] = useState<string | null>(null);
   const [project, setProject] = useState<ProjectInfo | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [view, setView] = useState<View>('books');
+  // ---- タブ（エディタ領域に開いているもの） ----
+  const [tabs, setTabsState] = useState<TabsState>(EMPTY_TABS);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const setTabs = useCallback((fn: (s: TabsState) => TabsState) => setTabsState((s) => fn(s)), []);
+  const active = activeTab(tabs);
+  /** 表示中のブック（Build / Sync などのショートカットの対象） */
+  const selected = active?.kind === 'book' ? (active.rel ?? null) : null;
+  const open = useCallback(
+    (kind: Tab['kind'], rel?: string, opts: { preview?: boolean } = {}) =>
+      setTabs((s) => openTab(s, kind, rel, { preview: opts.preview ?? false })),
+    [setTabs],
+  );
   // ヘルプで表示する見出し（nonce は同じ見出しへもう一度移動するため）
   const [help, setHelp] = useState<{ anchor?: string; nonce: number }>({ nonce: 0 });
-  const openHelp = useCallback((anchor?: string) => {
-    setHelp((h) => ({ anchor, nonce: h.nonce + 1 }));
-    setView('help');
-  }, []);
-  const [ruleRel, setRuleRel] = useState('Agents.md');
-  // 保存していない Markdown の編集内容（ファイルや画面を切り替えても保持する）
+  const openHelp = useCallback(
+    (anchor?: string) => {
+      setHelp((h) => ({ anchor, nonce: h.nonce + 1 }));
+      open('help');
+    },
+    [open],
+  );
+  const [settingsFocus, setSettingsFocus] = useState<'bookRoot' | undefined>(undefined);
+  const openSettings = useCallback(
+    (focus?: 'bookRoot') => {
+      setSettingsFocus(focus);
+      open('settings');
+    },
+    [open],
+  );
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [explorerFocus, setExplorerFocus] = useState(0);
+  // 保存していない Markdown などの編集内容（ファイルや画面を切り替えても保持する）
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
-  const setDraft = useCallback((rel: string, d: Draft | null) => {
-    setDrafts((prev) => {
-      const next = { ...prev };
-      if (d) next[rel] = d;
-      else delete next[rel];
-      return next;
-    });
-  }, []);
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  const setDraft = useCallback(
+    (rel: string, d: Draft | null) => {
+      setDrafts((prev) => {
+        const next = { ...prev };
+        if (d) next[rel] = d;
+        else delete next[rel];
+        return next;
+      });
+      // 編集を始めたタブはプレビューから固定に変える（VS Code と同じ）
+      if (d) setTabs((s) => pinTab(s, tabId('doc', rel)));
+    },
+    [setTabs],
+  );
   const hasDrafts = Object.keys(drafts).length > 0;
   const [logs, setLogs] = useState<LogEntry[]>([]);
   // ブックごとの直前の操作の結果（画面に出して、何が起きたかをその場で示す）
@@ -102,10 +160,31 @@ export function App() {
   const webSkip = useRef(new Set<string>());
   const busyRef = useRef(false);
   const { ask, node: dialog } = useDialog();
+  // コマンドパレット / クイックオープン
+  const [palette, setPalette] = useState<PaletteSpec | null>(null);
+  // 2 段階のショートカット（Ctrl+K …）の 1 段目
+  const [chord, setChord] = useState<string | null>(null);
 
   const log = useCallback((level: LogEntry['level'], text: string) => {
     setLogs((l) => [...l.slice(-500), { time: now(), level, text }]);
   }, []);
+
+  /** 無くなったブックなどのタブを閉じる */
+  const pruneForProject = useCallback(
+    (p: ProjectInfo) =>
+      setTabs((s) =>
+        pruneTabs(s, (t) => {
+          if (t.kind === 'book') return p.books.some((b) => b.rel === t.rel);
+          if (t.kind === 'doc') {
+            const rel = t.rel ?? '';
+            if (!rel.includes('/')) return true;
+            return p.books.some((b) => localAgentsOf(b.dirRel) === rel);
+          }
+          return true;
+        }),
+      ),
+    [setTabs],
+  );
 
   const reload = useCallback(
     async (r: string | null = root) => {
@@ -113,13 +192,18 @@ export function App() {
       try {
         const p = await unwrap(api.loadProject(r));
         setProject(p);
-        setSelected((s) => (s && p.books.some((b) => b.rel === s) ? s : (p.books[0]?.rel ?? null)));
+        pruneForProject(p);
       } catch (e) {
         log('error', `読み込みに失敗しました: ${(e as Error).message}`);
       }
     },
-    [root, log],
+    [root, log, pruneForProject],
   );
+
+  // 開いているタブをプロジェクトごとに覚えておく（次に開いたときに復元する）
+  useEffect(() => {
+    if (root && project) storageSet(`tabs:${root}`, serializeTabs(tabs));
+  }, [tabs, root, project]);
 
   /** 操作の排他制御と後処理（再読み込み） */
   const withBusy = useCallback(
@@ -342,6 +426,24 @@ export function App() {
     [root, runConfirmed, logResult, showConflicts, ask, buildFlow, log],
   );
 
+  const askContinue = useCallback(
+    async (title: string, body: string, label: string): Promise<boolean> => {
+      const { value } = await ask({
+        title,
+        icon: 'warning',
+        body: <p>{body}</p>,
+        buttons: [
+          { label: 'キャンセル', value: false, variant: 'primary' },
+          { label: `このまま${label}`, value: true },
+        ],
+        cancelValue: false,
+      });
+      if (value) log('warning', `${title}（このまま${label}しました）`);
+      return value;
+    },
+    [ask, log],
+  );
+
   /**
    * OneDrive の同期が終わるまで待つ（Windows のみ）。転送中なら最大2分待ち、
    * 一時停止・エラー・OneDrive 未起動なら続けるかを聞く。false なら中止
@@ -386,25 +488,8 @@ export function App() {
         return true;
       }
     },
-    // askContinue は下で定義（ask のみに依存）
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [root, mergeSync, ask],
+    [root, mergeSync, askContinue],
   );
-
-  const askContinue = async (title: string, body: string, label: string): Promise<boolean> => {
-    const { value } = await ask({
-      title,
-      icon: 'warning',
-      body: <p>{body}</p>,
-      buttons: [
-        { label: 'キャンセル', value: false, variant: 'primary' },
-        { label: `このまま${label}`, value: true },
-      ],
-      cancelValue: false,
-    });
-    if (value) log('warning', `${title}（このまま${label}しました）`);
-    return value;
-  };
 
   /**
    * Web 版で開いたブックに、Web 版での編集が届いているか確認する。
@@ -451,8 +536,7 @@ export function App() {
       }
       return askContinue('Web 版での編集が届きませんでした', '2分待ちましたが、ブックは更新されていません。', label);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [root, ask, log, waitForOneDrive],
+    [root, ask, log, waitForOneDrive, askContinue],
   );
 
   /** Build / Sync の後、Web 版で開いていたブックは、比較の基準を今の状態に更新する */
@@ -464,7 +548,6 @@ export function App() {
       const s = await api.bookStamp(root!, book);
       if (s.ok) setOpened(key, { ...opened, stamp: s.value });
     },
-
     [root],
   );
 
@@ -530,7 +613,7 @@ export function App() {
             ],
             cancelValue: false,
           });
-          if (value) setView('settings');
+          if (value) openSettings();
           return;
         }
         const url = opened.value;
@@ -545,8 +628,7 @@ export function App() {
             : `デスクトップ版 Excel で開きました: ${book}`,
         );
       }),
-
-    [withBusy, ready, syncFlow, root, project, log, ask, waitForOneDrive],
+    [withBusy, ready, syncFlow, root, project, log, ask, waitForOneDrive, openSettings],
   );
 
   /** 直前の Build / Sync を元に戻す（ゴール: 戻せない操作だけ確認する。これは戻せないので確認する） */
@@ -637,11 +719,15 @@ export function App() {
   // 設定画面を読み直すためのキー（ブックの置き場所を変えた後など）
   const [settingsKey, setSettingsKey] = useState(0);
 
-  /** ブックの置き場所を変える（既存のブックも移動する）。newRoot が null ならソースの中へ戻す */
+  /**
+   * ブックの置き場所を変える。move なら既存のブックも移動し、keep なら設定だけを変える。
+   * newRoot が null ならソースの中へ戻す
+   */
   const onRelocate = useCallback(
-    (newRoot: string | null) =>
+    (newRoot: string | null, relocateMode: RelocateMode = 'move') =>
       withBusy('ブックを移動中', async () => {
         const count = project?.books.length ?? 0;
+        const move = relocateMode === 'move' && count > 0;
         const { value } = await ask({
           title: 'ブックの置き場所を変えますか？',
           icon: 'info',
@@ -651,21 +737,27 @@ export function App() {
                 {project?.bookRoot ?? `${project?.root}（ソースの中）`}
                 <br />→ {newRoot ?? `${project?.root}（ソースの中）`}
               </p>
-              {count > 0 && (
+              {move && (
                 <p className="mt-2">
                   既存のブック {count} 冊を、同じフォルダ構成のまま移動します。Excel で開いている場合は閉じてください。
+                </p>
+              )}
+              {!move && count > 0 && (
+                <p className="mt-2">
+                  ブックは移動しません。新しい置き場所にあるブックを使います（元の場所のブック {count}
+                  冊はそのまま残ります。不要なら自分で削除してください）。
                 </p>
               )}
             </>
           ),
           buttons: [
-            { label: count > 0 ? '移動して変更' : '変更', value: true, variant: 'primary' },
+            { label: move ? '移動して変更' : '変更', value: true, variant: 'primary' },
             { label: 'キャンセル', value: false },
           ],
           cancelValue: false,
         });
         if (!value) return;
-        const r = await unwrap(api.relocateBooks(root!, newRoot));
+        const r = await unwrap(api.relocateBooks(root!, newRoot, { move }));
         for (const m of r.moved) log('info', `  移動: ${m}`);
         log('success', `ブックの置き場所を変更しました: ${r.bookRoot ?? 'ソースの中'}`);
         webSkip.current.clear();
@@ -674,7 +766,6 @@ export function App() {
     [withBusy, ask, project, root, log],
   );
 
-  /** プロジェクトの種類を選ぶ（最初のブックを作るとき）。キャンセルなら null */
   /**
    * 最初のブックを作るときに、編集用ブックの置き場所を決める（Web 版・Copilot で開けるよう OneDrive を勧める）。
    * 置き場所（未設定ならプロジェクトの中は null）を返す。キャンセルなら undefined
@@ -714,6 +805,7 @@ export function App() {
     return r.bookRoot;
   }, [ask, project, root, log]);
 
+  /** プロジェクトの種類を選ぶ（最初のブックを作るとき）。キャンセルなら null */
   const chooseMode = useCallback(async (): Promise<ProjectMode | null> => {
     const { value } = await ask<ProjectMode | null>({
       title: 'プロジェクトの種類を選んでください',
@@ -747,9 +839,98 @@ export function App() {
     return value;
   }, [ask]);
 
+  /**
+   * ブックを作る前に、ブックにしないファイルの指定（.xlcodeignore）が無ければ確認する。
+   * .gitignore の除外だけに従ってよいか、.gitignore も無ければ全ファイルがシートになることを知らせる。
+   * 続けてよければ true。「先に編集」なら .xlcodeignore を開いて false
+   */
+  const confirmIgnore = useCallback(
+    async (dirs: string[]): Promise<boolean> => {
+      if (!project || !root) return true;
+      // 保存した直後でも最新の状態を見る（画面の再読み込みを待たない）
+      const latest = await api.loadProject(root);
+      const ignoreInfo = latest.ok ? latest.value.ignore : project.ignore;
+      if ((ignoreInfo.xlcode ?? 0) > 0) return true;
+      if (storageGet<Record<string, boolean>>('ignoreConfirmed', {})[root]) return true;
+      // 作る対象のファイルを数える（多いときは最初の数フォルダだけ）
+      let sheets = 0;
+      let ignored = 0;
+      let nonCode = 0;
+      const samples: string[] = [];
+      for (const d of dirs.slice(0, 50)) {
+        const r = await api.previewBook(root, d);
+        if (!r.ok) continue;
+        sheets += r.value.sheets.length;
+        ignored += r.value.ignored.length;
+        nonCode += r.value.nonCode.length;
+        for (const f of r.value.sheets) if (samples.length < 8) samples.push(d ? `${d}/${f}` : f);
+      }
+      const git = ignoreInfo.git;
+      const { value, checked } = await ask<'go' | 'edit' | null>({
+        title: 'ブックにしないファイルの指定がありません',
+        icon: git === null ? 'warning' : 'info',
+        body: (
+          <div className="flex flex-col gap-2">
+            <p>
+              <span className="font-mono">.xlcodeignore</span> に除外の指定が
+              {ignoreInfo.xlcode === null ? 'ありません（ファイルがありません）' : '書かれていません'}。
+            </p>
+            {git === null ? (
+              <p className="text-warn">
+                .gitignore
+                もありません。フォルダの中のすべてのファイル（生成ファイルや依存パッケージがあればそれも）がシートになります。
+              </p>
+            ) : (
+              <p>
+                .gitignore の除外（{git} 件
+                {ignoreInfo.gitSample.length > 0 && (
+                  <>
+                    : <span className="font-mono">{ignoreInfo.gitSample.join(' ')}</span>
+                    {git > ignoreInfo.gitSample.length && ' …'}
+                  </>
+                )}
+                ）だけに従ってブックを作ります。ドキュメントや生成ファイルなど、Git
+                では管理するがブックにはしたくないものがあれば、先に .xlcodeignore に書いてください。
+              </p>
+            )}
+            <p className="text-[12px] text-muted">
+              {dirs.length > 1 ? `${dirs.length} 個のフォルダで` : ''}シートになるファイル: {sheets} 件
+              {ignored > 0 && `（除外: ${ignored} 件）`}
+              {nonCode > 0 && `（拡張子が無いため対象外: ${nonCode} 件）`}
+              {samples.length > 0 && (
+                <span className="mt-1 block font-mono text-faint">
+                  {samples.join('  ')}
+                  {sheets > samples.length && ' …'}
+                </span>
+              )}
+            </p>
+          </div>
+        ),
+        checkbox: 'このプロジェクトでは今後確認しない',
+        buttons: [
+          { label: '先に .xlcodeignore を編集', value: 'edit', variant: git === null ? 'primary' : 'secondary' },
+          { label: 'このまま作成', value: 'go', variant: git === null ? 'secondary' : 'primary' },
+          { label: 'キャンセル', value: null },
+        ],
+        cancelValue: null,
+      });
+      if (value === 'edit') {
+        open('doc', '.xlcodeignore');
+        log('info', '.xlcodeignore を編集してから、もう一度ブックを作成してください');
+        return false;
+      }
+      if (value === 'go' && checked) {
+        storageSet('ignoreConfirmed', { ...storageGet<Record<string, boolean>>('ignoreConfirmed', {}), [root]: true });
+      }
+      return value === 'go';
+    },
+    [project, root, ask, open, log],
+  );
+
   const onCreateBook = useCallback(
     (dirRel: string) =>
       withBusy('ブック作成中', async () => {
+        if (!(await confirmIgnore([dirRel]))) return;
         const name = (dirRel.split('/').pop() || project?.name) ?? '';
         let pmode = project?.mode ?? 'source';
         if (project && !project.modeSet) {
@@ -788,11 +969,14 @@ export function App() {
                   </li>
                 </ul>
               ) : (
-                <p className="mt-2">{dirRel || 'ルート'} のファイルをシートとして取り込みます。</p>
+                <p className="mt-2">
+                  {dirRel || 'ルート'} のファイルをシートとして取り込みます（.gitignore / .xlcodeignore
+                  で除外したものは除きます）。
+                </p>
               )}
               <p className="mt-2 text-muted">
                 あわせて .gitignore に xlCode 用の除外（*.xlcode.xlsx, ~$*,
-                .xlcode/）を追記し、Agents.md・LocalAgents.md が無ければ雛形を作成します。
+                .xlcode/）を追記し、Agents.md・LocalAgents.md・.xlcodeignore が無ければ雛形を作成します。
               </p>
             </>
           ),
@@ -871,10 +1055,9 @@ export function App() {
             unbuilt: [],
           },
         });
-        setSelected(r.book);
-        setView('books');
+        open('book', r.book);
       }),
-    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot, setLastResult],
+    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot, setLastResult, open, confirmIgnore],
   );
 
   /** ブックの無いディレクトリすべてにブックを作る（ソースコードモード） */
@@ -883,6 +1066,7 @@ export function App() {
       withBusy('ブック作成中', async () => {
         const dirs = project?.dirsWithoutBook ?? [];
         if (!project || dirs.length === 0) return;
+        if (!(await confirmIgnore(dirs))) return;
         if (!project.modeSet) {
           const chosen = await chooseMode();
           if (!chosen) return;
@@ -927,7 +1111,7 @@ export function App() {
         }
         log(made === dirs.length ? 'success' : 'warning', `ブックを ${made} / ${dirs.length} 冊作成しました`);
       }),
-    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot],
+    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot, confirmIgnore],
   );
 
   const openProject = useCallback(
@@ -954,8 +1138,8 @@ export function App() {
       }
       setRoot(p);
       setProject(null);
-      setSelected(null);
-      setView('books');
+      // 前回開いていたタブを復元する
+      setTabsState(deserializeTabs(storageGet(`tabs:${p}`, null)));
       setLastResults({});
       webSkip.current.clear();
       const next = [p, ...recent.filter((x) => x !== p)].slice(0, 8);
@@ -996,6 +1180,17 @@ export function App() {
     const p = await api.pickProject();
     if (p) await openProject(p);
   }, [openProject]);
+
+  // プロジェクトを開いた直後、タブが何も無ければ最初のブックをプレビューで開いておく（迷わないように）。
+  // 利用者がすべてのタブを閉じたあとの再読み込みでは開き直さない
+  const autoOpenedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!project || autoOpenedFor.current === project.root) return;
+    autoOpenedFor.current = project.root;
+    setTabs((s) =>
+      s.tabs.length === 0 && project.books[0] ? openTab(s, 'book', project.books[0].rel, { preview: true }) : s,
+    );
+  }, [project, setTabs]);
 
   // ウィンドウに戻ったとき（Excel での作業後など）に状態を更新する
   useEffect(() => {
@@ -1077,34 +1272,500 @@ export function App() {
     return () => clearInterval(timer);
   }, [project, mode, reload, log]);
 
+  // ---- タブの操作 ----
+
+  /** タブを閉じる。保存していない編集があれば確認する */
+  const requestClose = useCallback(
+    async (id: string) => {
+      const t = tabsRef.current.tabs.find((x) => x.id === id);
+      if (!t) return;
+      const draft = t.kind === 'doc' && t.rel ? draftsRef.current[t.rel] : undefined;
+      if (draft && t.rel) {
+        const rel = t.rel;
+        const { value } = await ask<'save' | 'discard' | 'cancel'>({
+          title: `${rel} を保存しますか？`,
+          icon: 'warning',
+          body: <p>保存しないと、編集内容は失われます。</p>,
+          buttons: [
+            { label: '保存', value: 'save', variant: 'primary' },
+            { label: '保存しない', value: 'discard', variant: 'danger' },
+            { label: 'キャンセル', value: 'cancel' },
+          ],
+          cancelValue: 'cancel',
+        });
+        if (value === 'cancel') return;
+        if (value === 'save') {
+          try {
+            await unwrap(api.writeDoc(root!, rel, draft.text));
+            log('success', `保存しました: ${rel}`);
+          } catch (e) {
+            log('error', (e as Error).message);
+            return;
+          }
+        }
+        setDraft(rel, null);
+      }
+      setTabs((s) => closeTab(s, id));
+    },
+    [ask, root, log, setDraft, setTabs],
+  );
+
+  const onOpenTarget = useCallback(
+    (target: OpenTarget, opts: { preview: boolean }) => open(target.kind, target.rel, { preview: opts.preview }),
+    [open],
+  );
+
+  // ---- コマンド（ショートカット・コマンドパレット） ----
+
+  const book = project?.books.find((b) => b.rel === selected) ?? null;
+  const isBusy = busy !== null;
+  const canOperate = !!book && !isBusy && !book.open && !book.loadError;
+
+  const openQuickOpen = useCallback(
+    (initial = '') => {
+      if (!project) return;
+      const items: PaletteItem[] = [
+        ...project.books.map((b) => ({
+          id: `book:${b.rel}`,
+          label: b.rel.split('/').pop()!,
+          detail: b.dirRel || undefined,
+          icon: <Icon.Book size={14} className="text-excel" />,
+          run: () => open('book', b.rel),
+        })),
+        {
+          id: 'doc:Agents.md',
+          label: 'Agents.md',
+          detail: 'プロジェクト共通のルール',
+          icon: <Icon.Rules size={14} className="text-info" />,
+          run: () => open('doc', 'Agents.md'),
+        },
+        ...project.books.map((b) => ({
+          id: `doc:${localAgentsOf(b.dirRel)}`,
+          label: 'LocalAgents.md',
+          detail: b.dirRel || '.',
+          icon: <Icon.Rules size={14} className="text-info" />,
+          run: () => open('doc', localAgentsOf(b.dirRel)),
+        })),
+        {
+          id: 'doc:.xlcodeignore',
+          label: '.xlcodeignore',
+          detail: 'ブックにしないファイル',
+          icon: <Icon.EyeOff size={14} className="text-warn" />,
+          run: () => open('doc', '.xlcodeignore'),
+        },
+        { id: 'settings', label: '設定', icon: <Icon.Gear size={14} />, run: () => openSettings() },
+        { id: 'help', label: 'ヘルプ', icon: <Icon.Help size={14} />, run: () => openHelp() },
+      ];
+      setPalette({
+        placeholder: 'ブック・ドキュメントの名前で検索（先頭に > でコマンド）',
+        initial,
+        items,
+        // コマンドの一覧は開くときに作る（下で定義）
+        commands: [],
+      });
+    },
+    [project, open, openSettings, openHelp],
+  );
+
+  const openRecent = useCallback(() => {
+    setPalette({
+      placeholder: '最近使用したプロジェクト',
+      items: [
+        ...recent.map((p) => ({
+          id: p,
+          label: p.split(/[\\/]/).pop()!,
+          detail: p,
+          icon: <Icon.Folder size={14} className="text-muted" />,
+          run: () => void openProject(p),
+        })),
+        {
+          id: 'pick',
+          label: 'プロジェクトを開く…',
+          keys: formatKey('ctrl+o', api.platform),
+          icon: <Icon.Folder size={14} className="text-link" />,
+          run: () => void pickProject(),
+        },
+      ],
+    });
+  }, [recent, openProject, pickProject]);
+
+  const openCreatePicker = useCallback(() => {
+    if (!project) return;
+    setPalette({
+      placeholder: 'ブックを作成するディレクトリ',
+      items: project.dirsWithoutBook.map((d) => ({
+        id: d,
+        label: d || `${project.name}（ルート）`,
+        icon: <Icon.Folder size={14} className="text-muted" />,
+        run: () => void onCreateBook(d),
+      })),
+    });
+  }, [project, onCreateBook]);
+
+  const commands = useMemo<Command[]>(() => {
+    const hasProject = !!project;
+    const excelOpen = (via: OpenVia): Command => ({
+      id: `excel-${via}`,
+      category: 'ブック',
+      title: via === 'desktop' ? 'デスクトップ版 Excel で開く' : 'Web 版 Excel で開く',
+      when: canOperate && (via === 'desktop' ? mode !== 'web' : mode !== 'desktop'),
+      run: () => void onOpenExcel(book!.rel, via),
+    });
+    const list: Command[] = [
+      {
+        id: 'open-project',
+        category: 'プロジェクト',
+        title: 'プロジェクトを開く…',
+        keys: ['ctrl+o', 'ctrl+k ctrl+o'],
+        run: () => void pickProject(),
+      },
+      {
+        id: 'recent',
+        category: 'プロジェクト',
+        title: '最近使用したプロジェクトを開く…',
+        keys: ['ctrl+r'],
+        run: openRecent,
+      },
+      {
+        id: 'quick-open',
+        category: '移動',
+        title: 'ブック・ドキュメントを開く…（クイックオープン）',
+        keys: ['ctrl+p', 'ctrl+e'],
+        when: hasProject,
+        run: () => openQuickOpen(''),
+      },
+      {
+        id: 'palette',
+        category: '移動',
+        title: 'コマンドパレット',
+        keys: ['ctrl+shift+p'],
+        when: hasProject,
+        run: () => openQuickOpen('>'),
+      },
+      {
+        id: 'build',
+        category: 'ブック',
+        title: 'Build（Excel → ソース）',
+        keys: ['ctrl+shift+b'],
+        when: canOperate,
+        run: () => void onBuild(book!.rel),
+      },
+      {
+        id: 'sync',
+        category: 'ブック',
+        title: 'Sync（ソース → Excel）',
+        keys: ['ctrl+shift+s'],
+        when: canOperate,
+        run: () => void onSync(book!.rel),
+      },
+      excelOpen('desktop'),
+      excelOpen('web'),
+      {
+        id: 'undo',
+        category: 'ブック',
+        title: `直前の ${book?.undo?.label ?? 'Build / Sync'} を元に戻す`,
+        when: canOperate && !!book?.undo,
+        run: () => void onUndo(book!.rel),
+      },
+      {
+        id: 'refresh-tree',
+        category: 'プロジェクト',
+        title: 'Refresh Tree（全ブックの #tree を更新）',
+        when: hasProject && !isBusy,
+        run: () => void onRefreshTree(),
+      },
+      {
+        id: 'reload',
+        category: 'プロジェクト',
+        title: '再読み込み',
+        keys: ['f5'],
+        when: hasProject && !isBusy,
+        run: () => void withBusy('再読み込み中', async () => {}),
+      },
+      {
+        id: 'create-book',
+        category: 'プロジェクト',
+        title: 'ブックを作成…',
+        when: hasProject && !isBusy && (project?.dirsWithoutBook.length ?? 0) > 0,
+        run: openCreatePicker,
+      },
+      {
+        id: 'create-all',
+        category: 'プロジェクト',
+        title: 'すべてのディレクトリにブックを作成',
+        when: hasProject && !isBusy && project?.mode !== 'vba' && (project?.dirsWithoutBook.length ?? 0) > 1,
+        run: () => void onCreateAll(),
+      },
+      {
+        id: 'terminal',
+        category: 'ブック',
+        title: 'ターミナルをこのフォルダで開く',
+        keys: ['ctrl+`', 'ctrl+@'],
+        when: !!book && !isBusy,
+        run: () =>
+          void unwrap(api.openTerminal(project!.root, book!.dirRel)).catch((e: Error) => log('error', e.message)),
+      },
+      {
+        id: 'reveal',
+        category: 'ブック',
+        title: 'ブックのフォルダを表示',
+        when: !!book && !isBusy,
+        run: () =>
+          void unwrap(api.revealInFolder(project!.root, book!.rel)).catch((e: Error) => log('error', e.message)),
+      },
+      {
+        id: 'agents',
+        category: 'ドキュメント',
+        title: 'Agents.md を開く（プロジェクト共通のルール）',
+        when: hasProject,
+        run: () => open('doc', 'Agents.md'),
+      },
+      {
+        id: 'local-agents',
+        category: 'ドキュメント',
+        title: 'LocalAgents.md を開く（このブックのルール）',
+        when: !!book,
+        run: () => open('doc', localAgentsOf(book!.dirRel)),
+      },
+      {
+        id: 'ignore',
+        category: 'ドキュメント',
+        title: '.xlcodeignore を開く（ブックにしないファイル）',
+        when: hasProject,
+        run: () => open('doc', '.xlcodeignore'),
+      },
+      {
+        id: 'close-tab',
+        category: 'タブ',
+        title: 'タブを閉じる',
+        keys: ['ctrl+w', 'ctrl+f4'],
+        when: !!active,
+        run: () => void requestClose(active!.id),
+      },
+      {
+        id: 'close-others',
+        category: 'タブ',
+        title: 'ほかのタブを閉じる',
+        when: tabs.tabs.length > 1,
+        run: () => setTabs((s) => closeOthers(s, s.active!)),
+      },
+      {
+        id: 'close-all',
+        category: 'タブ',
+        title: 'すべてのタブを閉じる',
+        keys: ['ctrl+k ctrl+w'],
+        when: tabs.tabs.length > 0,
+        run: () => setTabs((s) => closeAll(s)),
+      },
+      {
+        id: 'reopen',
+        category: 'タブ',
+        title: '閉じたタブを開き直す',
+        keys: ['ctrl+shift+t'],
+        when: tabs.closed.length > 0,
+        run: () => setTabs((s) => reopenClosed(s)),
+      },
+      {
+        id: 'next-tab',
+        category: 'タブ',
+        title: '次のタブ',
+        keys: ['ctrl+tab', 'ctrl+pagedown'],
+        when: tabs.tabs.length > 1,
+        run: () => setTabs((s) => cycleTab(s, 1)),
+      },
+      {
+        id: 'prev-tab',
+        category: 'タブ',
+        title: '前のタブ',
+        keys: ['ctrl+shift+tab', 'ctrl+pageup'],
+        when: tabs.tabs.length > 1,
+        run: () => setTabs((s) => cycleTab(s, -1)),
+      },
+      {
+        id: 'pin-tab',
+        category: 'タブ',
+        title: 'タブを固定する（プレビューをやめる）',
+        when: !!active?.preview,
+        run: () => setTabs((s) => pinTab(s, s.active!)),
+      },
+      ...Array.from({ length: 9 }, (_, i): Command => ({
+        id: `tab-${i + 1}`,
+        title: `${i + 1} 番目のタブ`,
+        keys: [`alt+${i + 1}`, `ctrl+${i + 1}`],
+        hidden: true,
+        when: tabs.tabs.length > i,
+        run: () => setTabs((s) => activateIndex(s, i)),
+      })),
+      {
+        id: 'toggle-sidebar',
+        category: '表示',
+        title: 'サイドバーの表示 / 非表示',
+        keys: ['ctrl+b'],
+        when: hasProject,
+        run: () => setSidebarOpen((v) => !v),
+      },
+      {
+        id: 'focus-explorer',
+        category: '表示',
+        title: 'エクスプローラーにフォーカス',
+        keys: ['ctrl+shift+e'],
+        when: hasProject,
+        run: () => {
+          setSidebarOpen(true);
+          setExplorerFocus((n) => n + 1);
+        },
+      },
+      {
+        id: 'toggle-panel',
+        category: '表示',
+        title: 'パネルの表示 / 非表示',
+        keys: ['ctrl+j'],
+        when: hasProject,
+        run: () => setPanelOpen((v) => !v),
+      },
+      {
+        id: 'problems',
+        category: '表示',
+        title: '問題を表示',
+        keys: ['ctrl+shift+m'],
+        when: hasProject,
+        run: () => {
+          setPanelOpen(true);
+          setPanelTab('problems');
+        },
+      },
+      {
+        id: 'output',
+        category: '表示',
+        title: '出力を表示',
+        keys: ['ctrl+shift+u'],
+        when: hasProject,
+        run: () => {
+          setPanelOpen(true);
+          setPanelTab('output');
+        },
+      },
+      { id: 'clear-output', category: '表示', title: '出力をクリア', when: hasProject, run: () => setLogs([]) },
+      {
+        id: 'settings',
+        category: '表示',
+        title: '設定を開く',
+        keys: ['ctrl+,'],
+        when: hasProject,
+        run: () => openSettings(),
+      },
+      {
+        id: 'book-root',
+        category: '設定',
+        title: 'ブックの置き場所を変える…',
+        when: hasProject,
+        run: () => openSettings('bookRoot'),
+      },
+      { id: 'help', category: 'ヘルプ', title: 'ヘルプを開く', keys: ['f1'], run: () => openHelp() },
+      {
+        id: 'shortcuts',
+        category: 'ヘルプ',
+        title: 'キーボードショートカットの一覧',
+        keys: ['ctrl+k ctrl+s'],
+        run: () => openHelp('ショートカット'),
+      },
+      {
+        id: 'onedrive',
+        category: 'OneDrive',
+        title: '同期状態を出力に表示',
+        when: hasProject,
+        run: logSyncDiagnostics,
+      },
+      ...EXCEL_MODES.map((m): Command => ({
+        id: `excel-mode-${m.id}`,
+        category: '設定',
+        title: `使う Excel: ${m.label}`,
+        when: mode !== m.id,
+        run: () => setExcelMode(m.id),
+      })),
+    ];
+    return list;
+  }, [
+    project,
+    book,
+    canOperate,
+    isBusy,
+    mode,
+    active,
+    tabs,
+    pickProject,
+    openRecent,
+    openQuickOpen,
+    onBuild,
+    onSync,
+    onOpenExcel,
+    onUndo,
+    onRefreshTree,
+    withBusy,
+    openCreatePicker,
+    onCreateAll,
+    log,
+    open,
+    requestClose,
+    setTabs,
+    openSettings,
+    openHelp,
+    logSyncDiagnostics,
+    setExcelMode,
+  ]);
+  const commandsRef = useRef(commands);
+  commandsRef.current = commands;
+
+  // クイックオープンのコマンド一覧は、開いた時点の最新のコマンドから作る
+  const paletteSpec = useMemo<PaletteSpec | null>(() => {
+    if (!palette || palette.commands === undefined) return palette;
+    const cmds: PaletteItem[] = commands
+      .filter((c) => c.when !== false && !c.hidden)
+      .map((c) => ({
+        id: c.id,
+        label: commandLabel(c),
+        keys: c.keys?.[0] ? formatKey(c.keys[0], api.platform) : undefined,
+        icon: <Icon.Command size={14} className="text-muted" />,
+        run: c.run,
+      }));
+    return { ...palette, commands: cmds };
+  }, [palette, commands]);
+
   // キーボードショートカット
+  const prefixes = useMemo(() => chordPrefixes(commands), [commands]);
+  const dialogOpen = dialog !== null;
+  useEffect(() => {
+    if (!chord) return;
+    const t = setTimeout(() => setChord(null), 3000);
+    return () => clearTimeout(t);
+  }, [chord]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'F1') {
+      if (palette || dialogOpen || e.isComposing) return;
+      const key = eventToKey(e, api.platform);
+      if (!key) return;
+      if (isTyping(e.target) && !allowedWhileTyping(key)) return;
+      if (chord) {
+        setChord(null);
+        const c = findCommand(commandsRef.current, `${chord} ${key}`);
         e.preventDefault();
-        openHelp();
+        if (c) c.run();
         return;
       }
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
-      const k = e.key.toLowerCase();
-      if (k === 'o') {
+      if (prefixes.has(key)) {
         e.preventDefault();
-        void pickProject();
-      } else if (k === 'j') {
+        setChord(key);
+        return;
+      }
+      const c = findCommand(commandsRef.current, key);
+      if (c) {
         e.preventDefault();
-        setPanelOpen((v) => !v);
-      } else if (k === 'b' && selected) {
-        e.preventDefault();
-        void onBuild(selected);
-      } else if (k === 's' && e.shiftKey && selected) {
-        e.preventDefault();
-        void onSync(selected);
+        c.run();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [pickProject, onBuild, onSync, selected, openHelp]);
+  }, [palette, dialogOpen, chord, prefixes]);
 
   const problems = useMemo<Problem[]>(() => {
     if (!project) return [];
@@ -1115,8 +1776,49 @@ export function App() {
     ]);
   }, [project]);
 
-  const book = project?.books.find((b) => b.rel === selected) ?? null;
+  // ---- タブバーの表示 ----
+  const tabViews = useMemo<TabView[]>(() => {
+    const labelOf = (t: Tab) =>
+      t.kind === 'book'
+        ? t.rel!.split('/').pop()!
+        : t.kind === 'doc'
+          ? t.rel!.split('/').pop()!
+          : t.kind === 'settings'
+            ? '設定'
+            : 'ヘルプ';
+    const counts = new Map<string, number>();
+    for (const t of tabs.tabs) counts.set(labelOf(t), (counts.get(labelOf(t)) ?? 0) + 1);
+    return tabs.tabs.map((t) => {
+      const label = labelOf(t);
+      const dir = t.rel?.includes('/') ? t.rel.slice(0, t.rel.lastIndexOf('/')) : '';
+      const dup = (counts.get(label) ?? 0) > 1;
+      const icon =
+        t.kind === 'book' ? (
+          <Icon.Book size={14} className="text-excel" />
+        ) : t.kind === 'doc' ? (
+          docKind(t.rel!) === 'ignore' ? (
+            <Icon.EyeOff size={14} className="text-warn" />
+          ) : (
+            <Icon.Rules size={14} className="text-info" />
+          )
+        ) : t.kind === 'settings' ? (
+          <Icon.Gear size={14} />
+        ) : (
+          <Icon.Help size={14} className="text-info" />
+        );
+      return {
+        tab: t,
+        label,
+        detail: t.kind === 'doc' && label === 'LocalAgents.md' ? dir || '.' : dup ? dir || '.' : undefined,
+        icon,
+        dirty: t.kind === 'doc' && !!drafts[t.rel!],
+        title: t.rel,
+      };
+    });
+  }, [tabs.tabs, drafts]);
+
   const isMac = api.platform === 'darwin';
+  const key = (b: string) => formatKey(b, api.platform);
 
   return (
     <div className="flex h-full flex-col">
@@ -1137,49 +1839,52 @@ export function App() {
       <div className="flex min-h-0 flex-1">
         {/* アクティビティバー */}
         <nav className="flex w-12 shrink-0 flex-col border-r border-line bg-side" aria-label="ビュー">
-          {(
-            [
-              { id: 'books', icon: <Icon.Files size={24} />, title: 'エクスプローラー' },
-              { id: 'rules', icon: <Icon.Rules size={24} />, title: 'ルール（Agents.md）' },
-            ] as const
-          ).map((it) => (
-            <button
-              key={it.id}
-              title={it.title}
-              aria-label={it.title}
-              // プロジェクトを開く前でも、ヘルプから起動画面へ戻れるようにする
-              disabled={!project && it.id !== 'books'}
-              onClick={() => setView(it.id)}
-              className={clsx(
-                'flex h-12 items-center justify-center border-l-2 disabled:opacity-40',
-                view === it.id && project
-                  ? 'border-fg-strong text-fg-strong'
-                  : 'border-transparent text-faint hover:text-fg',
-              )}
-            >
-              {it.icon}
-            </button>
-          ))}
+          <button
+            title={`エクスプローラー (${key('ctrl+shift+e')})`}
+            aria-label="エクスプローラー"
+            disabled={!project}
+            // 表示中にもう一度押すとサイドバーを隠す（VS Code と同じ）
+            onClick={() => setSidebarOpen((v) => !v)}
+            className={clsx(
+              'flex h-12 items-center justify-center border-l-2 disabled:opacity-40',
+              sidebarOpen && project
+                ? 'border-fg-strong text-fg-strong'
+                : 'border-transparent text-faint hover:text-fg',
+            )}
+          >
+            <Icon.Files size={24} />
+          </button>
+          <button
+            title={`検索・コマンド (${key('ctrl+p')} / ${key('ctrl+shift+p')})`}
+            aria-label="検索・コマンド"
+            disabled={!project}
+            onClick={() => openQuickOpen('')}
+            className="flex h-12 items-center justify-center border-l-2 border-transparent text-faint hover:text-fg disabled:opacity-40"
+          >
+            <Icon.Search size={22} />
+          </button>
           <div className="flex-1" />
           <button
-            title="ヘルプ (F1)"
+            title={`ヘルプ (${key('f1')})`}
             aria-label="ヘルプ"
             onClick={() => openHelp()}
             className={clsx(
               'flex h-12 items-center justify-center border-l-2',
-              view === 'help' ? 'border-fg-strong text-fg-strong' : 'border-transparent text-faint hover:text-fg',
+              active?.kind === 'help'
+                ? 'border-fg-strong text-fg-strong'
+                : 'border-transparent text-faint hover:text-fg',
             )}
           >
             <Icon.Help size={22} />
           </button>
           <button
-            title="設定"
+            title={`設定 (${key('ctrl+,')})`}
             aria-label="設定"
             disabled={!project}
-            onClick={() => setView('settings')}
+            onClick={() => openSettings()}
             className={clsx(
               'flex h-12 items-center justify-center border-l-2 disabled:opacity-40',
-              view === 'settings' && project
+              active?.kind === 'settings'
                 ? 'border-fg-strong text-fg-strong'
                 : 'border-transparent text-faint hover:text-fg',
             )}
@@ -1187,7 +1892,7 @@ export function App() {
             <Icon.Gear size={22} />
           </button>
           <button
-            title="プロジェクトを開く (Ctrl+O)"
+            title={`プロジェクトを開く (${key('ctrl+o')})`}
             aria-label="プロジェクトを開く"
             onClick={pickProject}
             className="flex h-12 items-center justify-center text-faint hover:text-fg"
@@ -1197,59 +1902,41 @@ export function App() {
         </nav>
 
         {/* サイドバー */}
-        {project && view !== 'settings' && view !== 'help' && (
+        {project && sidebarOpen && (
           <aside className="w-[280px] shrink-0 border-r border-line">
-            {view === 'books' ? (
-              <Sidebar
-                project={project}
-                selected={selected}
-                busy={busy !== null}
-                onSelect={setSelected}
-                sync={syncReport?.books ?? {}}
-                onRefreshTree={() => onRefreshTree()}
-                onReload={() => withBusy('再読み込み中', async () => {})}
-                onCreateBook={onCreateBook}
-                onCreateAll={project.mode === 'vba' && project.modeSet ? undefined : () => void onCreateAll()}
-                vba={project.mode === 'vba' && project.modeSet}
-              />
-            ) : (
-              <RulesList project={project} selected={ruleRel} drafts={drafts} onSelect={setRuleRel} />
-            )}
+            <Sidebar
+              project={project}
+              selected={active && (active.kind === 'book' || active.kind === 'doc') ? active.id : null}
+              busy={busy !== null}
+              onOpen={onOpenTarget}
+              sync={syncReport?.books ?? {}}
+              onRefreshTree={() => onRefreshTree()}
+              onReload={() => withBusy('再読み込み中', async () => {})}
+              onCreateBook={onCreateBook}
+              onCreateAll={project.mode === 'vba' && project.modeSet ? undefined : () => void onCreateAll()}
+              onSettings={() => openSettings('bookRoot')}
+              focusNonce={explorerFocus}
+              vba={project.mode === 'vba' && project.modeSet}
+            />
           </aside>
         )}
 
         {/* エディタ領域 */}
         <main className="flex min-w-0 flex-1 flex-col bg-editor">
-          {(project || view === 'help') && (
-            <div className="flex h-[35px] shrink-0 bg-side">
-              <div className="flex items-center gap-1.5 border-t border-t-accent border-r border-r-line bg-editor px-3 text-[13px] text-fg-strong">
-                {view === 'books' ? (
-                  <>
-                    <Icon.Book size={14} className="text-excel" />
-                    {book ? book.rel.split('/').pop() : 'ブック'}
-                  </>
-                ) : view === 'rules' ? (
-                  <>
-                    <Icon.Rules size={14} className="text-info" />
-                    {ruleRel}
-                  </>
-                ) : view === 'help' ? (
-                  <>
-                    <Icon.Help size={14} className="text-info" />
-                    ヘルプ
-                  </>
-                ) : (
-                  <>
-                    <Icon.Gear size={14} />
-                    設定
-                  </>
-                )}
-              </div>
-              <div className="flex-1 border-b border-line" />
-            </div>
+          {(project || tabs.tabs.length > 0) && (
+            <TabBar
+              tabs={tabViews}
+              active={tabs.active}
+              onActivate={(id) => setTabs((s) => activate(s, id))}
+              onClose={(id) => void requestClose(id)}
+              onPin={(id) => setTabs((s) => pinTab(s, id))}
+              onMove={(id, to) => setTabs((s) => moveTab(s, id, to))}
+              onCloseOthers={(id) => setTabs((s) => closeOthers(s, id))}
+              onCloseAll={() => setTabs((s) => closeAll(s))}
+            />
           )}
           <div className="min-h-0 flex-1">
-            {view === 'help' ? (
+            {active?.kind === 'help' ? (
               <HelpView anchor={help.anchor} nonce={help.nonce} />
             ) : !root || (!project && !busy) ? (
               <Welcome
@@ -1257,12 +1944,13 @@ export function App() {
                 onOpen={pickProject}
                 onOpenRecent={(p) => void openProject(p)}
                 onHelp={openHelp}
+                platform={api.platform}
               />
             ) : !project ? (
               <div className="flex h-full items-center justify-center gap-2 text-muted">
                 <Icon.Spinner /> 読み込み中...
               </div>
-            ) : view === 'settings' ? (
+            ) : active?.kind === 'settings' ? (
               <SettingsView
                 key={settingsKey}
                 root={project.root}
@@ -1272,20 +1960,27 @@ export function App() {
                 mode={mode}
                 onMode={setExcelMode}
                 onError={(m) => log('error', m)}
-                onSaved={() => log('success', '設定を保存しました')}
+                onSaved={() => {
+                  log('success', '設定を保存しました');
+                  void reload();
+                }}
+                onOpenDoc={(rel) => open('doc', rel)}
+                onHelp={openHelp}
+                focus={settingsFocus}
               />
-            ) : view === 'rules' ? (
-              <RulesEditor
-                key={ruleRel}
+            ) : active?.kind === 'doc' ? (
+              <DocEditor
+                key={active.rel}
                 root={project.root}
-                rel={ruleRel}
-                draft={drafts[ruleRel]}
+                rel={active.rel!}
+                draft={drafts[active.rel!]}
                 onDraft={setDraft}
                 onError={(m) => log('error', m)}
                 onSaved={(rel) => {
                   log('success', `保存しました: ${rel}`);
                   void reload();
                 }}
+                onHelp={openHelp}
               />
             ) : book ? (
               <BookView
@@ -1320,16 +2015,34 @@ export function App() {
                 onOpenBackups={() =>
                   void unwrap(api.openBackups(project.root, book.rel)).catch((e: Error) => log('error', e.message))
                 }
+                onOpenDoc={(rel) => open('doc', rel)}
+                platform={api.platform}
               />
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-muted">
-                <Icon.Book size={40} className="text-faint" />
-                <div>ブックがありません</div>
-                <div className="text-[12px]">サイドバーの「ブック未作成のディレクトリ」から作成できます</div>
+              <div className="flex h-full flex-col items-center justify-center gap-3 text-muted">
+                <Icon.Logo size={56} className="opacity-40" />
+                {project.books.length === 0 ? (
+                  <>
+                    <div>ブックがありません</div>
+                    <div className="text-[12px]">サイドバーの「ブック未作成のディレクトリ」から作成できます</div>
+                  </>
+                ) : (
+                  <div className="text-[12px]">サイドバーでブックを選ぶか、次のキーで開きます</div>
+                )}
+                <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5 text-[12px]">
+                  <span className="text-right">ブック・ドキュメントを開く</span>
+                  <Kbd>{key('ctrl+p')}</Kbd>
+                  <span className="text-right">コマンドパレット</span>
+                  <Kbd>{key('ctrl+shift+p')}</Kbd>
+                  <span className="text-right">エクスプローラー</span>
+                  <Kbd>{key('ctrl+shift+e')}</Kbd>
+                  <span className="text-right">ヘルプ</span>
+                  <Kbd>{key('f1')}</Kbd>
+                </div>
               </div>
             )}
           </div>
-          {project && panelOpen && view !== 'help' && (
+          {project && panelOpen && active?.kind !== 'help' && (
             <div className="h-[200px] shrink-0">
               <Panel
                 tab={panelTab}
@@ -1350,14 +2063,17 @@ export function App() {
         errors={problems.filter((p) => p.level === 'error').length}
         warnings={problems.filter((p) => p.level === 'warning').length}
         mode={mode}
-        onMode={() => setView('settings')}
+        onMode={() => openSettings()}
         sync={syncReport}
         onSync={logSyncDiagnostics}
         onProblems={() => {
           setPanelOpen(true);
           setPanelTab('problems');
         }}
+        chord={chord ? formatKey(chord, api.platform) : null}
+        onPalette={() => openQuickOpen('>')}
       />
+      {paletteSpec && <Palette spec={paletteSpec} onClose={() => setPalette(null)} />}
       {dialog}
     </div>
   );

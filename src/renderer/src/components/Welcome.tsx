@@ -1,3 +1,4 @@
+import { formatKey } from '../keys';
 import { Icon } from './Icons';
 import { Kbd } from './ui';
 
@@ -6,13 +7,16 @@ export function Welcome({
   onOpen,
   onOpenRecent,
   onHelp,
+  platform = 'win32',
 }: {
   recent: string[];
   onOpen: () => void;
   onOpenRecent: (p: string) => void;
   /** ヘルプを開く（anchor はヘルプの見出し） */
   onHelp: (anchor?: string) => void;
+  platform?: string;
 }) {
+  const key = (b: string) => formatKey(b, platform);
   return (
     <div className="flex h-full items-center justify-center overflow-auto bg-editor">
       <div className="w-[680px] max-w-[90%] py-10">
@@ -109,20 +113,29 @@ export function Welcome({
         </div>
         <div className="mt-10 flex flex-wrap gap-x-5 gap-y-2 text-[12px] text-muted">
           <span>
-            <Kbd>Ctrl+O</Kbd> 開く
+            <Kbd>{key('ctrl+o')}</Kbd> 開く
           </span>
           <span>
-            <Kbd>Ctrl+B</Kbd> Build
+            <Kbd>{key('ctrl+r')}</Kbd> 最近
           </span>
           <span>
-            <Kbd>Ctrl+Shift+S</Kbd> Sync
+            <Kbd>{key('ctrl+p')}</Kbd> ブックを開く
           </span>
           <span>
-            <Kbd>Ctrl+J</Kbd> パネル
+            <Kbd>{key('ctrl+shift+p')}</Kbd> コマンド
           </span>
           <span>
-            <Kbd>F1</Kbd> ヘルプ
+            <Kbd>{key('ctrl+shift+b')}</Kbd> Build
           </span>
+          <span>
+            <Kbd>{key('ctrl+shift+s')}</Kbd> Sync
+          </span>
+          <span>
+            <Kbd>{key('f1')}</Kbd> ヘルプ
+          </span>
+          <button className="text-link hover:underline" onClick={() => onHelp('ショートカット')}>
+            すべてのショートカット
+          </button>
         </div>
       </div>
     </div>

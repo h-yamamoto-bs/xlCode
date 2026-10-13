@@ -1,8 +1,8 @@
 import { access, appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { AGENTS_SHEET, LOCAL_AGENTS_SHEET, XLCODE_DIR } from './constants';
+import { AGENTS_SHEET, IGNORE_FILE, LOCAL_AGENTS_SHEET, XLCODE_DIR } from './constants';
 import { encodeFile } from './encoding';
-import { excelPathError, listSourceFiles, readTextFile } from './fsutil';
+import { excelPathError, IGNORE_TEMPLATE, listSourceFiles, readTextFile } from './fsutil';
 import { linesToText, textToLines } from './normalize';
 import { bookPathFor, bookRef, bookRootOf, booksInDir, openProject } from './project';
 import { bookState, saveState } from './state';
@@ -89,6 +89,7 @@ async function exists(p: string): Promise<boolean> {
  * プロジェクトの初期設定。
  * - .gitignore に xlCode 用の除外（ブック・ロックファイル・.xlcode/）を追記（8.2）
  * - ルートに Agents.md が無ければ雛形を作成
+ * - ルートに .xlcodeignore（ブックにしないファイルの一覧）が無ければ雛形を作成
  */
 export async function initProject(root: string): Promise<string[]> {
   const done: string[] = [];
@@ -107,6 +108,11 @@ export async function initProject(root: string): Promise<string[]> {
   if (!(await exists(agents))) {
     await writeFile(agents, vba ? VBA_AGENTS_TEMPLATE : AGENTS_TEMPLATE);
     done.push('Agents.md を作成');
+  }
+  const ign = path.join(root, IGNORE_FILE);
+  if (!(await exists(ign))) {
+    await writeFile(ign, IGNORE_TEMPLATE);
+    done.push(`${IGNORE_FILE} を作成（ブックにしないファイルの一覧）`);
   }
   return done;
 }

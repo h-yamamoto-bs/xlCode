@@ -135,7 +135,7 @@ export async function scanBook(ctx: ProjectContext, ref: BookRef): Promise<Scan>
       continue;
     }
     if (isIgnored(ctx.ig, ref.dirRel ? `${ref.dirRel}/${fileName}` : fileName, false)) {
-      warnings.push(`「${name}」は .gitignore の対象なのでスキップします`);
+      warnings.push(`「${name}」は .gitignore / .xlcodeignore の対象なのでスキップします（シートは触りません）`);
       continue;
     }
     const data = book.readSheet(name);

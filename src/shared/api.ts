@@ -2,11 +2,13 @@ import type {
   BookStatus,
   BuildOptions,
   CreateBookResult,
+  DirFilesPreview,
   FileDiff,
   GitSummary,
   OpResult,
   RefreshResult,
   ProjectMode,
+  RelocateOptions,
   RelocateResult,
   SyncOptions,
   UndoResult,
@@ -73,7 +75,26 @@ export interface ProjectInfo {
   mode: ProjectMode;
   /** 種類が設定済みか（未設定のまま最初のブックを作るときに選ぶ） */
   modeSet: boolean;
+  /**
+   * xlCode で編集できるドキュメント（ルートからの相対パス）のうち、ファイルとして存在するもの。
+   * Agents.md / <dir>/LocalAgents.md / .xlcodeignore
+   */
+  docs: string[];
+  /** 除外ファイルの状態（ブック作成の前の確認に使う） */
+  ignore: IgnoreInfo;
 }
+
+export interface IgnoreInfo {
+  /** .xlcodeignore の有効な行の数（ファイルが無ければ null） */
+  xlcode: number | null;
+  /** .gitignore の有効な行の数（ファイルが無ければ null） */
+  git: number | null;
+  /** .gitignore の有効な行の先頭いくつか（表示用） */
+  gitSample: string[];
+}
+
+/** xlCode で編集できるドキュメントの種類 */
+export type DocKind = 'agents' | 'local-agents' | 'ignore';
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -84,6 +105,8 @@ export interface XlcodeApi {
   initProject(root: string): Promise<Result<string[]>>;
   refreshTree(root: string): Promise<Result<RefreshResult>>;
   createBook(root: string, dirRel: string): Promise<Result<CreateBookResult>>;
+  /** ブックを作る前に、ディレクトリのファイルがどう扱われるか（シート / 除外 / 対象外）を見る */
+  previewBook(root: string, dirRel: string): Promise<Result<DirFilesPreview>>;
   build(root: string, bookRel: string, opts: BuildOptions): Promise<Result<OpResult>>;
   sync(root: string, bookRel: string, opts: SyncOptions): Promise<Result<OpResult>>;
   /** web の場合は開いた URL を返す */
@@ -103,11 +126,11 @@ export interface XlcodeApi {
   /** ブックをエクスプローラーで表示する */
   revealInFolder(root: string, bookRel: string): Promise<Result<void>>;
   pickFolder(title: string): Promise<string | null>;
-  /** ブックの置き場所を変え、既存のブックを移動する（null ならソースの中へ戻す） */
-  relocateBooks(root: string, newRoot: string | null): Promise<Result<RelocateResult>>;
-  /** Agents.md / LocalAgents.md のみ読み書きできる */
-  readRuleFile(root: string, rel: string): Promise<Result<string | null>>;
-  writeRuleFile(root: string, rel: string, text: string): Promise<Result<void>>;
+  /** ブックの置き場所を変え、既存のブックを移動する（null ならソースの中へ戻す。opts.move が false なら設定だけ変える） */
+  relocateBooks(root: string, newRoot: string | null, opts?: RelocateOptions): Promise<Result<RelocateResult>>;
+  /** Agents.md / LocalAgents.md / .xlcodeignore のみ読み書きできる（無ければ null） */
+  readDoc(root: string, rel: string): Promise<Result<string | null>>;
+  writeDoc(root: string, rel: string, text: string): Promise<Result<void>>;
   /** プロジェクトの種類を決める（一度決めたら変えられない） */
   setProjectMode(root: string, mode: ProjectMode): Promise<Result<void>>;
   /** 取り込む Excel ツールを選ぶ */

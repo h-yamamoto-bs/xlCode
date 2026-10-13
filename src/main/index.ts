@@ -1,6 +1,20 @@
 import path from 'node:path';
-import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, nativeTheme, shell } from 'electron';
 import { registerIpc } from './ipc';
+
+/**
+ * アプリのメニュー。
+ * Windows / Linux では既定のメニューを外す（既定のメニューは Ctrl+W で閉じる・Ctrl+R で再読み込みなどの
+ * ショートカットを持ち、画面側のタブ操作（Ctrl+W = タブを閉じる、Ctrl+R = 最近使ったプロジェクト）とぶつかるため）。
+ * macOS ではコピー・貼り付けなどがメニューのロール経由で動くので、最小限のメニューを残す。
+ */
+function setupMenu(): void {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
+}
 
 function createWindow(): void {
   nativeTheme.themeSource = 'dark';
@@ -23,6 +37,13 @@ function createWindow(): void {
     },
   });
   win.once('ready-to-show', () => win.show());
+  // 開発用: F12 / Ctrl+Shift+I で開発者ツール（メニューを外したので自前で扱う）
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (app.isPackaged || input.type !== 'keyDown') return;
+    if (input.key === 'F12' || (input.control && input.shift && input.key.toUpperCase() === 'I')) {
+      win.webContents.toggleDevTools();
+    }
+  });
   // 画面側が beforeunload で閉じるのを止めた（保存していない Markdown がある）ときに確認する
   win.webContents.on('will-prevent-unload', (event) => {
     const choice = dialog.showMessageBoxSync(win, {
@@ -61,6 +82,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.whenReady().then(() => {
+  setupMenu();
   registerIpc();
   createWindow();
   app.on('activate', () => {

@@ -38,7 +38,13 @@ export function StatusBar({
   sync,
   onSync,
   onProblems,
+  chord,
+  onPalette,
 }: {
+  /** 2 段階のショートカットの 1 段目が押されている（Ctrl+K など） */
+  chord: string | null;
+  /** コマンドパレットを開く */
+  onPalette: () => void;
   project: ProjectInfo | null;
   busy: string | null;
   errors: number;
@@ -82,7 +88,11 @@ export function StatusBar({
           <Icon.Spinner size={13} /> {busy}
         </Item>
       )}
+      {chord && <Item className="text-info">({chord}) が押されました。次のキーを待っています...</Item>}
       <div className="flex-1" />
+      <Item onClick={onPalette} title="コマンドパレット (Ctrl+Shift+P)">
+        <Icon.Command size={13} />
+      </Item>
       {project && editing.length > 0 && (
         <Item title={editing.join('\n')} className="text-modified">
           Excel側で編集中: {editing.length}

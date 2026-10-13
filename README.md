@@ -50,7 +50,9 @@ npm run dev              # 開発起動
 npm run package:win      # Windows 用インストーラー（dist/xlCode-Setup-*.exe）。Linux では wine（32/64 ビット）と xvfb-run が必要
 ```
 
-- **エクスプローラー**: ブックをディレクトリの階層で表示（子が 1 つだけの階層は `a/b` にまとめる）。各ファイルの状態（E = Excel側で編集中、S = エディタ側で変更、C = 両側で変更）
+- **エクスプローラー**: ブックと、ルール（`Agents.md` / `LocalAgents.md`）・`.xlcodeignore` をディレクトリの階層で表示（子が 1 つだけの階層は `a/b` にまとめる）。各ファイルの状態（E = Excel側で編集中、S = エディタ側で変更、C = 両側で変更）。キーボードでも移動できる
+- **タブ**: ブック・ドキュメント・設定・ヘルプを VS Code と同じタブで複数開く（プレビュー / 固定、`Ctrl+W`、`Ctrl+Tab`、ドラッグで並べ替え、閉じたタブを開き直す、次回起動時に復元）
+- **コマンドパレット / クイックオープン**: `Ctrl+P` でブック・ドキュメントを名前で開く、`Ctrl+Shift+P`（または `>`）ですべての操作をキー表示つきで検索・実行
 - **次の操作**: ブック画面の先頭に、今すべきことを 1 つだけ示す（Build / Sync / Excel を閉じる / 衝突の統合 など）。対応するボタンだけを強調し、押せないボタンには理由をツールチップで出す
 - **変更を確認**: ファイル一覧の行（または「変更を確認」）で、Build 後のソース・Sync 後のシートがどう変わるかを差分で見る
 - **元に戻す**: 直前の Build / Sync 1 回分を、ソースファイル・ブック・`.xlcode/state.json` ごと操作前に戻す（`.xlcode/undo/` に控えを置く。Git の自動コミットは残る）。VBA モードではビルド結果（.xlsm）も Build 前に戻す
@@ -60,9 +62,11 @@ npm run package:win      # Windows 用インストーラー（dist/xlCode-Setup-
   - Web 版で開いている状態は検知できないため、Build / Sync 前に閉じたかを確認する。「両方」では、xlCode から最後にデスクトップ版で開いたブックは確認を省く
 - **デスクトップで開く / Webで開く**: ブックに反映していないソースの変更があれば Sync してから起動（5.5-2）。変更が無ければ確認も Sync もせずにそのまま開く。Web 版の URL は Windows の OneDrive 同期設定（レジストリを UTF-8 で読むので日本語のフォルダ名も可）から求め、個人用 OneDrive は同期データベース（SyncEngineDatabase.db）からファイルの ID を求めて開く（無理なら「オンラインで表示」）（どちらも無理なら設定で指定）
 - **Build / Sync**: 確認が必要な場合（未コミット変更・省略検知・削除）はダイアログを表示。Sync で未 Build 変更があれば「先に Build / 破棄 / 中止」を選択
-- **ルール**: Agents.md（100 行超で警告）と各 LocalAgents.md を編集
+- **ルール**: Agents.md（100 行超で警告）と各 LocalAgents.md をエクスプローラーからタブで編集
+- **ブックにしないファイル**: ルートの `.xlcodeignore`（.gitignore と同じ書き方）に書いたファイル・フォルダは、Git 管理のままシート・#tree・ブック作成の候補から外す。指定が無いままブックを作るときは、.gitignore だけに従ってよいか（.gitignore も無ければ全ファイルがシートになること）を、シートになるファイル数と一緒に確認する
+- **ブックの置き場所の変更**: 設定でフォルダを選ぶか入力し、既存のブックを移動する。自分で移動済み・フォルダ名を変えた場合は「移動しない」で設定だけ変える。OneDrive の一時的なロックは数秒待つ
 - プロジェクトを開いたときに Refresh Tree を自動実行（6.4）。ウィンドウに戻ったときに状態を再読み込み
-- ショートカット: Ctrl+O 開く / Ctrl+B Build / Ctrl+Shift+S Sync / Ctrl+J パネル
+- ショートカット（VS Code 準拠）: Ctrl+O 開く / Ctrl+R 最近 / Ctrl+P クイックオープン / Ctrl+Shift+P コマンド / Ctrl+Shift+B Build / Ctrl+Shift+S Sync / Ctrl+W タブを閉じる / Ctrl+Tab タブ切替 / Ctrl+B サイドバー / Ctrl+J パネル / Ctrl+, 設定 / F1 ヘルプ（全一覧はヘルプの「ショートカット」）
 
 ## 使い方（CLI）
 
@@ -70,7 +74,7 @@ npm run package:win      # Windows 用インストーラー（dist/xlCode-Setup-
 npm install
 npm test                                            # テスト
 npm run test:e2e                                    # GUI の E2E テスト（Linux では xvfb-run npm run test:e2e）
-npx tsx src/cli.ts init   <project>                 # .gitignore と Agents.md を用意
+npx tsx src/cli.ts init   <project>                 # .gitignore・Agents.md・.xlcodeignore を用意
 npx tsx src/cli.ts create <project> app             # app/app.xlcode.xlsx を作成
 npx tsx src/cli.ts status <project> app/app.xlcode.xlsx
 npx tsx src/cli.ts build  <project> app/app.xlcode.xlsx
@@ -96,6 +100,11 @@ src/core/
 src/main/       Electron メインプロセス（IPC・Excel 起動・ターミナル起動）
 src/preload/    contextBridge（sandbox 有効）
 src/renderer/   React + Tailwind の画面
+  src/tabs.ts       タブの状態（純粋関数）
+  src/commands.ts   コマンド（パレット・ショートカットの元）
+  src/keys.ts       キー割り当ての解釈・表示
+  src/fuzzy.ts      パレットのあいまい検索
+  src/components/   Sidebar（階層・キーボード操作）、TabBar、Palette、DocEditor、BookView、SettingsView など
 src/shared/     メイン⇔画面の型
 src/cli.ts      動作確認用 CLI
 tests/          Vitest
@@ -133,13 +142,19 @@ tests/          Vitest
 { "shrinkThreshold": 0.3, "shrinkMinLines": 10, "trimTrailingWhitespace": true, "format": true, "autoCommit": true }
 ```
 
+## ブックにしないファイル（.xlcodeignore）
+
+ルートの `.xlcodeignore` に、`.gitignore` と同じ書き方でファイル・フォルダを書く（`init` / ブック作成時に雛形を作る）。
+`.gitignore` と合わせて除外として読み、シート・`#tree`・ブック作成の候補から外す。Git の管理には影響しない。
+すでにシートになっているファイルを除外すると、シートは触らずに警告だけ出す。
+
 ## 仕様との差分・注意点
 
 - **Web 版 Excel で開いている状態は検知できない。** 検知できるのはデスクトップ版 Excel（`~$` ロックファイル、Windows のファイルロック）のみ。GUI では「Web 版で閉じたか」の確認で補う。
 - **OneDrive 上のブックをデスクトップ版で開いた場合（自動保存・共同編集）に検知できるかは未確認。** [docs/windows-checklist.md](docs/windows-checklist.md) の 1-4。
 - **`DEL_` と 31 文字制限**: 28 文字を超えるファイル名には `DEL_` を付けられない（シート名が 31 文字を超える）。
 - **整形されるのは変更時のみ**: ブック作成時、シートには整形後の内容が入るが、ソースファイルは次に Excel 側で変更されて Build されるまで元のまま。
-- **Excel が作れないシート名**: `[id].tsx` のようなファイルはシートにできないため、Sync・ブック作成がエラーで止まる。対象外にするには `.gitignore` に追加する。
+- **Excel が作れないシート名**: `[id].tsx` のようなファイルはシートにできないため、Sync・ブック作成がエラーで止まる。対象外にするには `.xlcodeignore` に追加する。
 - **No.16（外部書き換えで失われる書式）** は未検証。ExcelJS で作成したブックの往復（数式・先行ゼロ・日付・指数・先頭空白・空行）は文字列のまま保持されることをテストで確認済み。Excel / Copilot が作成したブックでの確認は Windows で行う。
 
 ## 壊さないための仕組み
@@ -155,7 +170,7 @@ tests/          Vitest
 
 Copilot を使うにはブックが OneDrive にある必要がある。一方、ソース・`.git`・`node_modules` を OneDrive に置くと同期が重くなり、`.git` が壊れやすい。
 そこで、ブックだけを OneDrive 内の専用フォルダに、ソースと同じフォルダ構成で置ける（設定 →「ブックの置き場所」）。
-最初のブックを作るときに置き場所を聞く（「OneDrive のフォルダを選ぶ…」か「プロジェクトの中に置く」）。あとから設定画面で変えると、既存のブックも移動する。
+最初のブックを作るときに置き場所を聞く（「OneDrive のフォルダを選ぶ…」か「プロジェクトの中に置く」）。あとから設定画面（サイドバーの「置き場所: 〜」からも開ける）で変えると、既存のブックも移動する。「既存のブックを移動しない」なら設定だけを変える（自分で移動済み・OneDrive のフォルダ名を変えた・別の PC のとき）。
 
 編集用ブックのバックアップは OneDrive のバージョン履歴に任せる（xlCode では取らない）。
 
@@ -281,6 +296,10 @@ VBA モードの取り込み（Windows・デスクトップ版 Excel が必要�
 
 - Vite は 7 系（electron-vite が Vite 8 未対応のため）
 - TypeScript は 6.0 系（typescript-eslint が 7 系未対応のため）
+
+## Windows での確認
+
+Linux の自動テストでは判断できない項目（Excel の検知、OneDrive、VBA、インストーラー、日本語 IME とショートカットなど）は、[docs/windows-checklist.html](docs/windows-checklist.html) をブラウザで開いて確認する。状態とメモはブラウザに保存され、絞り込み・並べ替え・達成率の集計ができる（表形式の元の一覧は [docs/windows-checklist.md](docs/windows-checklist.md)）。
 
 ## 受け入れ基準（13章）
 
