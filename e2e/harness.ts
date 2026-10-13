@@ -75,6 +75,9 @@ export async function launch(
     .getByRole('button', { name: path.basename(root) })
     .first()
     .click();
+  // プロジェクトが読み込まれ、エクスプローラーが出るまで待つ（ショートカットはプロジェクトが開いてから効く）。
+  // 初回の確認（excelMode が null）が出るときは、答えるまで読み込まれないので待たない
+  if (excelMode) await win.getByRole('tree', { name: 'ブック', exact: true }).waitFor();
   return {
     app,
     win,

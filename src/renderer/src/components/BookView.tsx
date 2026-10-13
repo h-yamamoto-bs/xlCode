@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { FileDiff, OpResult, ProjectMode } from '../../../core';
 import type { BookSummary, BookSync, ExcelMode, OpenVia } from '../../../shared/api';
 import { api, unwrap } from '../api';
+import { formatKey } from '../keys';
 import { nextAction, type Next } from '../next';
 import { EXCEL_SIDE, SOURCE_SIDE, STATUS, SYNC_META } from '../status';
 import { DiffView, diffCaption } from './DiffView';
@@ -191,8 +192,13 @@ export function BookView({
   onOpenOutput,
   onOpenBackups,
   onHelp,
+  onOpenDoc,
+  platform = 'win32',
 }: {
   root: string;
+  /** ドキュメント（LocalAgents.md など）をタブで開く */
+  onOpenDoc?: (rel: string) => void;
+  platform?: string;
   /** ヘルプの見出しを開く */
   onHelp?: (anchor: string) => void;
   projectMode?: ProjectMode;
@@ -265,6 +271,8 @@ export function BookView({
 
   const openPrimary = next.kind === 'open' || next.kind === 'refresh';
   const vba = projectMode === 'vba';
+  const key = (b: string) => formatKey(b, platform);
+  const localAgents = book.dirRel ? `${book.dirRel}/LocalAgents.md` : 'LocalAgents.md';
   const out = book.vba;
   const outName = out?.output.split(/[\\/]/).pop();
 
@@ -280,6 +288,15 @@ export function BookView({
         ))}
         <Icon.Book size={13} className="text-excel" />
         <span className="text-fg">{fileName}</span>
+        {onOpenDoc && (
+          <button
+            className="ml-auto flex items-center gap-1 text-[11px] text-link hover:underline"
+            onClick={() => onOpenDoc(localAgents)}
+            title={`${localAgents} を開く（このフォルダ固有のルール）`}
+          >
+            <Icon.Rules size={12} /> LocalAgents.md
+          </button>
+        )}
       </div>
 
       {/* ツールバー */}
@@ -313,9 +330,10 @@ export function BookView({
           disabled={disabled}
           aria-label="Build"
           title={reason(
-            vba
+            (vba
               ? `Build: Excel 側の変更をソースコードへ出力し、VBA を書き込んだ ${outName ?? '.xlsm'} を作り直す（Windows のデスクトップ版 Excel を使う）`
-              : 'Build: Excel 側の変更をソースコードへ出力する（エディタ側だけの変更はシートへ取り込む）',
+              : 'Build: Excel 側の変更をソースコードへ出力する（エディタ側だけの変更はシートへ取り込む）') +
+              ` (${key('ctrl+shift+b')})`,
           )}
         >
           <Icon.Build size={15} />
@@ -333,9 +351,9 @@ export function BookView({
           disabled={disabled}
           aria-label="Sync"
           title={reason(
-            vba
+            (vba
               ? 'Sync: エディタ側の変更をシートへ反映する（ビルド結果には次の Build で入る）'
-              : 'Sync: エディタ側の変更をシートへ反映する',
+              : 'Sync: エディタ側の変更をシートへ反映する') + ` (${key('ctrl+shift+s')})`,
           )}
         >
           <Icon.Sync size={15} />
@@ -376,7 +394,11 @@ export function BookView({
           </Button>
         )}
         <div className="mx-1 h-4 w-px bg-line" />
-        <Button onClick={onTerminal} disabled={busy} title="OS のターミナルをこのディレクトリで開く">
+        <Button
+          onClick={onTerminal}
+          disabled={busy}
+          title={`OS のターミナルをこのディレクトリで開く (${key('ctrl+`')})`}
+        >
           <Icon.Terminal size={15} />
           ターミナル
         </Button>

@@ -1,21 +1,79 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import ignore, { type Ignore } from 'ignore';
-import { AGENTS_SHEET, BOOK_SUFFIX, EXCEL_MAX_PATH, XLCODE_DIR } from './constants';
+import { AGENTS_SHEET, BOOK_SUFFIX, EXCEL_MAX_PATH, IGNORE_FILE, XLCODE_DIR } from './constants';
 import { decodeFile, type Decoded } from './encoding';
 
 /** .gitignore に関係なく常に除外するもの */
-const ALWAYS_IGNORED = ['.git/', `${XLCODE_DIR}/`, '~$*'];
+const ALWAYS_IGNORED = ['.git/', `${XLCODE_DIR}/`, '~$*', IGNORE_FILE];
 
-/** プロジェクトルートの .gitignore を読み込む（7章。自作パーサは作らない） */
+/** 除外の設定ファイル（どちらも .gitignore の書き方。先に読んだものを後のもので上書きできる） */
+export const IGNORE_SOURCES: readonly string[] = ['.gitignore', IGNORE_FILE];
+
+/**
+ * プロジェクトルートの .gitignore と .xlcodeignore を読み込む（7章。自作パーサは作らない）。
+ * .gitignore は Git 管理外のもの（node_modules など）、.xlcodeignore は Git 管理はするがブックにはしないもの
+ * （ドキュメント、生成ファイル、ロックファイルなど）を書く。
+ */
 export async function loadIgnore(root: string): Promise<Ignore> {
   const ig = ignore().add(ALWAYS_IGNORED);
-  try {
-    ig.add(await readFile(path.join(root, '.gitignore'), 'utf8'));
-  } catch {
-    // .gitignore が無ければ既定の除外のみ
+  for (const name of IGNORE_SOURCES) {
+    try {
+      ig.add(await readFile(path.join(root, name), 'utf8'));
+    } catch {
+      // 無ければ既定の除外のみ
+    }
   }
   return ig;
+}
+
+/** .xlcodeignore の雛形（initProject で無ければ作る） */
+export const IGNORE_TEMPLATE = `# xlCode でブック（シート）にしないファイル・フォルダ
+# .gitignore と同じ書き方。ここに書いたものは、Git では管理したまま、シートにも #tree にも載りません。
+# 変更したら、ブック画面の「Sync」（既にシートになっているものはシートから消えます）と Refresh Tree を実行します。
+#
+# 例:
+# docs/
+# *.min.js
+# package-lock.json
+`;
+
+/**
+ * ブックを持たないディレクトリ（ブック作成の候補。ルートからの相対パス、'' はルート）。
+ * 除外（.gitignore / .xlcodeignore）対象のディレクトリは候補にしない。
+ */
+export async function listDirsWithoutBook(root: string, ig: Ignore, bookRoot: string = root): Promise<string[]> {
+  const separate = path.resolve(bookRoot) !== path.resolve(root);
+  const out: string[] = [];
+  async function walk(dirAbs: string): Promise<void> {
+    const entries = await readdir(dirAbs, { withFileTypes: true });
+    const hasBook = separate
+      ? await exists(bookPathFor(root, bookRoot, dirAbs))
+      : entries.some((e) => e.isFile() && isBookFile(e.name));
+    if (!hasBook) out.push(toPosixRel(root, dirAbs));
+    for (const e of entries) {
+      const abs = path.join(dirAbs, e.name);
+      if (e.isDirectory() && !isIgnored(ig, toPosixRel(root, abs), true)) await walk(abs);
+    }
+  }
+  await walk(root);
+  return out.sort();
+}
+
+async function exists(p: string): Promise<boolean> {
+  try {
+    await access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** ソースのディレクトリに対応するブックの絶対パス */
+export function bookPathFor(root: string, bookRoot: string, dirAbs: string): string {
+  const dirRel = path.relative(root, dirAbs);
+  const name = path.basename(path.resolve(dirAbs));
+  return path.join(bookRoot, dirRel, `${name}${BOOK_SUFFIX}`);
 }
 
 export function toPosixRel(root: string, abs: string): string {

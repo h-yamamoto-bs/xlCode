@@ -117,14 +117,17 @@ describe('xlCode GUI', () => {
     const f = await project();
     running = await launch(f.root);
     const { win } = running;
-    await win.getByRole('button', { name: 'ルール（Agents.md）' }).click();
+    // ルールはエクスプローラーの階層の中にある（ルートに Agents.md、各フォルダに LocalAgents.md）
+    await win.getByRole('treeitem', { name: 'Agents.md', exact: true }).click();
     const editor = win.getByRole('textbox', { name: 'Agents.md' });
     await editor.click();
     await editor.press('Control+End');
     await editor.pressSequentially('\n- 追加したルール');
-    await win.getByText('app', { exact: true }).click();
+    await win.getByRole('treeitem', { name: 'app/LocalAgents.md', exact: true }).click();
     await win.getByRole('textbox', { name: 'app/LocalAgents.md' }).waitFor();
-    await win.getByText('Agents.md', { exact: true }).first().click();
+    // 編集中のタブは固定され、● が付く
+    await expect(win.getByRole('tab', { name: 'Agents.md', exact: true }).count()).resolves.toBe(1);
+    await win.getByRole('tab', { name: 'Agents.md', exact: true }).click();
     await expect(editor.inputValue()).resolves.toContain('- 追加したルール');
     await expect(win.getByTitle('保存していない変更があります').count()).resolves.toBe(1);
     await editor.press('Control+s');
@@ -137,7 +140,7 @@ describe('xlCode GUI', () => {
     const f = await project();
     running = await launch(f.root);
     const { win } = running;
-    await win.getByRole('button', { name: 'ルール（Agents.md）' }).click();
+    await win.getByRole('treeitem', { name: 'Agents.md', exact: true }).click();
     const editor = win.getByRole('textbox', { name: 'Agents.md' });
     await editor.click();
     await editor.pressSequentially('x');
@@ -208,8 +211,11 @@ describe('ブックの置き場所', () => {
     await app.evaluate(({ dialog }, dir) => {
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [dir] })) as typeof dialog.showOpenDialog;
     }, xl);
-    await win.getByRole('button', { name: '設定' }).click();
+    // サイドバーの「置き場所」からも設定を開ける
+    await win.getByRole('button', { name: /^置き場所:/ }).click();
     await win.getByRole('button', { name: 'フォルダを選ぶ…' }).click();
+    await expect.poll(() => win.getByLabel('ブックの置き場所').inputValue()).toBe(xl);
+    await win.getByRole('button', { name: '変更してブック 2 冊を移動' }).click();
     await win.getByText('既存のブック 2 冊を、同じフォルダ構成のまま移動します').waitFor();
     await win.getByRole('button', { name: '移動して変更' }).click();
     await waitLog(win, /ブックの置き場所を変更しました/);
@@ -219,7 +225,6 @@ describe('ブックの置き場所', () => {
     await f.editBook(path.relative(f.root, path.join(xl, 'app', 'app.xlcode.xlsx')), (b) =>
       b.writeLines('util.ts', ['export const one = 1;', 'export const moved = 2;']),
     );
-    await win.getByRole('button', { name: 'エクスプローラー' }).click();
     await selectBook(win, APP_BOOK);
     await win.getByRole('button', { name: 'Build', exact: true }).click();
     await win.getByRole('button', { name: '閉じたので続行' }).click();
@@ -425,10 +430,160 @@ describe('ヘルプ', () => {
     await article.getByRole('link', { name: '衝突シート' }).first().click();
     await article.getByRole('heading', { name: '衝突の解決' }).waitFor();
     await expect(win.getByLabel('ヘルプを検索').inputValue()).resolves.toBe('');
-    // エクスプローラーに戻り、F1 でまた開く
-    await win.getByRole('button', { name: 'エクスプローラー' }).click();
+    // ヘルプのタブを閉じるとブックに戻り、F1 でまた開く
+    await win.keyboard.press('Control+w');
     await win.getByRole('button', { name: 'Build', exact: true }).waitFor();
     await win.keyboard.press('F1');
     await article.getByRole('heading', { name: 'xlCode の使い方' }).waitFor();
+  });
+});
+
+describe('タブ', () => {
+  it('複数のブックとドキュメントをタブで開き、キーで切り替え・閉じる', async () => {
+    const f = await project();
+    running = await launch(f.root);
+    const { win } = running;
+    const tabs = win.getByRole('tablist', { name: '開いているタブ' });
+    // 1 回押しはプレビュー（次のプレビューに置き換わる）。2 回押すと固定される
+    await selectBook(win, APP_BOOK);
+    await tabs.getByRole('tab', { name: 'app.xlcode.xlsx' }).waitFor();
+    await selectBook(win, API_BOOK);
+    await tabs.getByRole('tab', { name: 'api.xlcode.xlsx' }).waitFor();
+    await expect(tabs.getByRole('tab').count()).resolves.toBe(1);
+    await win.getByRole('treeitem', { name: 'api.xlcode.xlsx' }).locator('div').first().dblclick();
+    await selectBook(win, APP_BOOK);
+    await tabs.getByRole('tab', { name: 'app.xlcode.xlsx' }).waitFor();
+    await expect(tabs.getByRole('tab').count()).resolves.toBe(2);
+    await expect(tabs.getByRole('tab', { name: 'app.xlcode.xlsx' }).getAttribute('aria-selected')).resolves.toBe(
+      'true',
+    );
+    // ドキュメントもタブ（app は 2 回押して固定しておく）
+    await win.getByRole('treeitem', { name: 'app.xlcode.xlsx' }).locator('div').first().dblclick();
+    await win.getByRole('treeitem', { name: 'app/LocalAgents.md', exact: true }).click();
+    await win.getByRole('textbox', { name: 'app/LocalAgents.md' }).waitFor();
+    await expect(tabs.getByRole('tab').count()).resolves.toBe(3);
+    // Ctrl+Tab で次へ、Ctrl+W で閉じる
+    await win.keyboard.press('Control+Tab');
+    await expect(tabs.getByRole('tab', { name: 'api.xlcode.xlsx' }).getAttribute('aria-selected')).resolves.toBe(
+      'true',
+    );
+    await win.keyboard.press('Control+w');
+    await expect(tabs.getByRole('tab').count()).resolves.toBe(2);
+    await expect(tabs.getByRole('tab', { name: 'app.xlcode.xlsx' }).getAttribute('aria-selected')).resolves.toBe(
+      'true',
+    );
+    // Ctrl+Shift+T で開き直す。Alt+1 で 1 番目へ
+    await win.keyboard.press('Control+Shift+t');
+    await expect(tabs.getByRole('tab').count()).resolves.toBe(3);
+    await win.keyboard.press('Alt+1');
+    await expect(tabs.getByRole('tab').first().getAttribute('aria-selected')).resolves.toBe('true');
+    // Ctrl+B でサイドバーを隠す
+    await win.keyboard.press('Control+b');
+    await expect(win.getByRole('tree', { name: 'ブック', exact: true }).count()).resolves.toBe(0);
+    await win.keyboard.press('Control+b');
+    await win.getByRole('tree', { name: 'ブック', exact: true }).waitFor();
+  });
+
+  it('保存していないドキュメントのタブを閉じるときは確認し、保存できる', async () => {
+    const f = await project();
+    running = await launch(f.root);
+    const { win } = running;
+    await win.getByRole('treeitem', { name: 'Agents.md', exact: true }).click();
+    const editor = win.getByRole('textbox', { name: 'Agents.md' });
+    await editor.click();
+    await editor.press('Control+End');
+    await editor.pressSequentially('\n- タブを閉じて保存');
+    await win.keyboard.press('Control+w');
+    await win.getByText('Agents.md を保存しますか？').waitFor();
+    await win.getByRole('dialog').getByRole('button', { name: '保存', exact: true }).click();
+    await waitLog(win, '保存しました: Agents.md');
+    expect(await f.read('Agents.md')).toContain('- タブを閉じて保存');
+    await expect(win.getByRole('tab', { name: 'Agents.md', exact: true }).count()).resolves.toBe(0);
+  });
+});
+
+describe('コマンドパレットとショートカット', () => {
+  it('Ctrl+P でブックを名前で開き、Ctrl+Shift+P でコマンドを実行する', async () => {
+    const f = await project();
+    running = await launch(f.root);
+    const { win } = running;
+    await win.keyboard.press('Control+p');
+    const box = win.getByLabel('ブック・ドキュメントの名前で検索（先頭に > でコマンド）');
+    await box.waitFor();
+    await box.fill('api');
+    await win.getByRole('option', { name: /api\.xlcode\.xlsx/ }).waitFor();
+    await box.press('Enter');
+    await win.getByRole('tablist', { name: '開いているタブ' }).getByRole('tab', { name: 'api.xlcode.xlsx' }).waitFor();
+    // コマンドパレット: Build を実行すると、Web 版を閉じたかの確認が出る（= Build が始まった）
+    await win.keyboard.press('Control+Shift+p');
+    const cmd = win.getByRole('dialog', { name: 'コマンドパレット' });
+    await cmd.waitFor();
+    await expect(cmd.getByRole('textbox').inputValue()).resolves.toBe('>');
+    await cmd.getByRole('textbox').pressSequentially('build');
+    await cmd.getByRole('option', { name: /Build（Excel → ソース）/ }).waitFor();
+    await cmd.getByRole('textbox').press('Enter');
+    await win.getByText('Web 版 Excel でこのブックを閉じましたか？').waitFor();
+    await win.getByRole('button', { name: 'キャンセル' }).click();
+    // ショートカットでも同じ（キャンセル後の再読み込みが終わるのを待つ。処理中はキーが効かない）
+    await expect.poll(() => win.getByText('Build 中', { exact: true }).count()).toBe(0);
+    await win.keyboard.press('Control+Shift+b');
+    await win.getByText('Web 版 Excel でこのブックを閉じましたか？').waitFor();
+    await win.keyboard.press('Escape');
+    // Ctrl+, で設定、Ctrl+Shift+M で問題パネル
+    await win.keyboard.press('Control+,');
+    await win.getByRole('tab', { name: '設定' }).waitFor();
+    await win.keyboard.press('Control+Shift+m');
+    await win.getByText('問題は検出されていません。').waitFor();
+  });
+});
+
+describe('ブックにしないファイル（.xlcodeignore）', () => {
+  it('エクスプローラーから .xlcodeignore を編集すると、そのファイルはシートの対象から外れる', async () => {
+    const f = await project();
+    running = await launch(f.root);
+    const { win } = running;
+    await win.getByRole('treeitem', { name: '.xlcodeignore', exact: true }).click();
+    const editor = win.getByRole('textbox', { name: '.xlcodeignore' });
+    await editor.waitFor();
+    await win.getByText('ブックにしないファイル・フォルダ').first().waitFor();
+    await editor.click();
+    await editor.press('Control+End');
+    await editor.pressSequentially('\napp/util.ts\n');
+    await editor.press('Control+s');
+    await waitLog(win, '保存しました: .xlcodeignore');
+    await selectBook(win, APP_BOOK);
+    // 問題パネルに警告として出る
+    await win.keyboard.press('Control+Shift+m');
+    await win
+      .getByText('「util.ts」は .gitignore / .xlcodeignore の対象なのでスキップします', { exact: false })
+      .first()
+      .waitFor();
+    const st = await bookStatus(f.root, f.file(APP_BOOK));
+    expect(st.files.map((x) => x.name)).not.toContain('util.ts');
+    expect(await f.read('.gitignore')).not.toContain('util.ts');
+    // 設定画面にも反映される
+    await win.keyboard.press('Control+,');
+    await win.getByText('1 件: app/util.ts').waitFor();
+  });
+
+  it('置き場所は「移動しない」でも変えられる', async () => {
+    const f = await project();
+    const { mkdtemp, readdir } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const xl = await mkdtemp(path.join(tmpdir(), 'xlfolder-'));
+    running = await launch(f.root);
+    const { win } = running;
+    await win.keyboard.press('Control+,');
+    const input = win.getByLabel('ブックの置き場所');
+    await input.fill(xl);
+    await win.getByLabel('既存のブックを移動しない', { exact: false }).check();
+    await win.getByRole('button', { name: '変更', exact: true }).click();
+    await win.getByText('ブックは移動しません。').waitFor();
+    await win.getByRole('button', { name: '変更', exact: true }).last().click();
+    await waitLog(win, /ブックの置き場所を変更しました/);
+    expect(await readdir(xl)).toEqual([]);
+    expect((await readdir(f.file('app'))).filter((n) => n.endsWith('.xlsx'))).toEqual(['app.xlcode.xlsx']);
+    await win.getByText('ブックがありません').first().waitFor();
   });
 });

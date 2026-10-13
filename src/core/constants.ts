@@ -22,6 +22,9 @@ export const STATE_FILE = 'state.json';
 export const TREE_FILE = 'tree.txt';
 export const CONFIG_FILE = 'config.json';
 
+/** ブックにしないファイル・フォルダの一覧（プロジェクトルート。.gitignore と同じ書き方） */
+export const IGNORE_FILE = '.xlcodeignore';
+
 /** Excel の制約 */
 export const MAX_SHEET_NAME = 31;
 export const MAX_CELL_CHARS = 32767;

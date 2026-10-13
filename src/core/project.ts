@@ -3,7 +3,6 @@ import path from 'node:path';
 import type { Ignore } from 'ignore';
 import { Canonicalizer } from './canonical';
 import { loadConfig, type XlcodeConfig } from './config';
-import { BOOK_SUFFIX } from './constants';
 import { isBookFile, loadIgnore, toPosixRel } from './fsutil';
 import { loadState, type State } from './state';
 
@@ -48,12 +47,7 @@ export function bookRef(root: string, bookAbs: string, bookRoot: string = root):
   return { abs, rel: toPosixRel(bookRoot, abs), dirAbs: path.join(root, ...dirRel.split('/')), dirRel };
 }
 
-/** ソースのディレクトリに対応するブックの絶対パス */
-export function bookPathFor(root: string, bookRoot: string, dirAbs: string): string {
-  const dirRel = path.relative(root, dirAbs);
-  const name = path.basename(path.resolve(dirAbs));
-  return path.join(bookRoot, dirRel, `${name}${BOOK_SUFFIX}`);
-}
+export { bookPathFor } from './fsutil';
 
 /** ブックの相対パス（置き場所から）を絶対パスにする。置き場所の外を指していたら例外 */
 export function resolveBook(bookRoot: string, rel: string): string {
