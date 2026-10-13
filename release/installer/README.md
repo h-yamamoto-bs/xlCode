@@ -1,12 +1,12 @@
-# xlCode インストーラー（1.5.2）
+# xlCode インストーラー（1.6.0）
 
-GitHub の 1 ファイル 100MB 制限のため 2 つに分割している。**Windows 上での動作はまだ確認していない。**
+GitHub の 1 ファイル 100MB 制限のため分割している。**Windows 上での動作はまだ確認していない**（確認項目は [docs/windows-checklist.html](../../docs/windows-checklist.html)）。
 
 ## 使い方
 
 1. このフォルダを取得する（`git clone` か「Code → Download ZIP」）
-2. `join.bat` をダブルクリック → `xlCode-Setup-1.5.2.exe` ができる
-3. `xlCode-Setup-1.5.2.exe` を実行して、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
+2. `join.bat` をダブルクリック → `xlCode-Setup-1.6.0.exe` ができる
+3. `xlCode-Setup-1.6.0.exe` を実行して、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
 4. スタートメニュー・デスクトップの xlCode から起動
 
 以前のバージョンを入れている場合は、そのまま上書きでインストールできる。
@@ -15,11 +15,11 @@ GitHub の 1 ファイル 100MB 制限のため 2 つに分割している。**W
 
 ## 確認用
 
-作られるソース: コミット dacc9f2（main。個人用 OneDrive のブックを Web 版で開くと 404 になる問題の修正。サイドバーの階層表示、変更が無ければ確認なしで開く、Web 版で開けない問題の修正。アプリ内ヘルプ（左端の ？ / F1）を追加。UI/UX 改良・VBA モード・取り込み・参照設定を含む）
+作られるソース: コミット f6a3d59（main。1.6.0: タブ、VS Code 準拠のショートカットとコマンドパレット、エクスプローラーの階層にルールと .xlcodeignore、ブックにしないファイル（.xlcodeignore）とブック作成前の確認、ブックの置き場所の変更の改良。VBA モード・取り込み・アプリ内ヘルプを含む）
 
-xlCode-Setup-1.5.2.exe の SHA-256:
-`894028068bad58ea30416721c4da60a42affc5acec626dbe0cfa9f3fc39932c8`
+xlCode-Setup-1.6.0.exe の SHA-256:
+`04f155b470975ffe45f72fc5a07827c1c3e9b9d0d4fa5d2f15bc66d54bfe9050`
 
-Windows では `certutil -hashfile xlCode-Setup-1.5.2.exe SHA256` で確認できる。
+Windows では `certutil -hashfile xlCode-Setup-1.6.0.exe SHA256` で確認できる。
 
-確認してほしい項目は [docs/windows-checklist.md](../../docs/windows-checklist.md)（特に 6・1-4・7・10・11・12）。
+確認してほしい項目は [docs/windows-checklist.html](../../docs/windows-checklist.html)（インストーラー・メニュー削除・ショートカット・IME・置き場所・OneDrive を優先）。
