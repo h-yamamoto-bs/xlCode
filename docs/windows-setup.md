@@ -31,7 +31,6 @@ cd xlCode
 
 ## B. ソース版で動かす（npm install 不要。Node.js 22 以上が必要）
 
-> `release\xlCode-src-win.zip` は 1.5.2 のときに作ったもの（ソースも 1.5.2）。1.6.0 のソースで動かすには、展開した `node_modules` だけを clone した `C:\dev\xlCode\` に移して `npm run dev` する（下の「Git の履歴付きで開発したい場合」）。
 
 1. `node -v` で 22 以上か確認する
 2. `release\join.bat` をダブルクリック → `release\xlCode-src-win.zip` ができる
@@ -41,7 +40,7 @@ cd xlCode
    certutil -hashfile release\xlCode-src-win.zip SHA256
    ```
 
-   `1e851a309af46b8564cd45935e3e9802b56e908a036f54dcf3f8d1f2e9d9cdb4` と一致すれば OK
+   `51b3819a0400b984634c940033505efb0777558065f78b7e951882324a180473` と一致すれば OK
 4. 展開する。エクスプローラーの展開は遅く、長いパスで失敗しやすいので `tar` を使う
 
    ```bat

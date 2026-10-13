@@ -3,7 +3,7 @@
 | 場所 | 中身 |
 |---|---|
 | `installer/` | Windows 用インストーラー（1.6.0。コミットは `installer/README.md` を参照） |
-| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（1.5.2、コミット dacc9f2。1.6.0 でも `node_modules` はそのまま使える） |
+| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（1.6.0、コミット aadc66a） |
 
 どちらも GitHub の 1 ファイル 100MB 制限に収まるよう分割している。
 
@@ -11,9 +11,9 @@
 
 npm install できない環境向けの一式。
 
-- ソース一式（コミット dacc9f2・main。`release/` は除く）
+- ソース一式（コミット aadc66a・main、1.6.0。`release/` は除く）
 - **Windows x64 用**の `node_modules`（Electron 本体、esbuild・Rollup・Tailwind・lightningcss の win32-x64 版、iconv-lite を含む）
-- `node_modules\.bin` の Windows 用の起動ファイル（`.cmd` / `.ps1`）。`npm run dev` などがそのまま動く
+- `node_modules\.bin` の Windows 用の起動ファイル（`.cmd` / `.ps1`。npm が Windows で作るものと同じ cmd-shim で生成）。`npm run dev` などがそのまま動く
 - `package.json` / `package-lock.json`
 - **Git の履歴（`.git`）は含まない。** 履歴はこのリポジトリから取得する
 
@@ -28,6 +28,6 @@ Linux / macOS では `node_modules` の中身が合わないため、そのま�
 ### 確認用
 
 xlCode-src-win.zip の SHA-256:
-`ab4e8f4d55baf79a11a67619680d28bf8472fae8711edcc6ae4a5ef80aa51d66`
+`51b3819a0400b984634c940033505efb0777558065f78b7e951882324a180473`
 
 Windows では `certutil -hashfile xlCode-src-win.zip SHA256` で確認できる。
