@@ -23,7 +23,7 @@ cd xlCode
    certutil -hashfile release\installer\xlCode-Setup-1.7.0.exe SHA256
    ```
 
-   `04f155b470975ffe45f72fc5a07827c1c3e9b9d0d4fa5d2f15bc66d54bfe9050` と一致すれば OK
+   `a987cdb333c52e4d6f5f58e339ffa47c1e09532ae58c258287e683d66a111ad8` と一致すれば OK
 3. `xlCode-Setup-1.7.0.exe` を実行し、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
    - SmartScreen の警告が出たら「詳細情報 → 実行」（署名がないため）
    - 会社の AppLocker などで起動できない場合は「すべてのユーザー」（Program Files）で試す

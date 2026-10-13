@@ -2,8 +2,8 @@
 
 | 場所 | 中身 |
 |---|---|
-| `installer/` | Windows 用インストーラー（1.6.0。コミットは `installer/README.md` を参照） |
-| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（1.6.0、コミット aadc66a） |
+| `installer/` | Windows 用インストーラー（1.7.0。コミットは `installer/README.md` を参照） |
+| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（1.6.0、コミット aadc66a。依存パッケージは 1.7.0 と同じなので、`node_modules` はそのまま使える） |
 
 どちらも GitHub の 1 ファイル 100MB 制限に収まるよう分割している。
 
