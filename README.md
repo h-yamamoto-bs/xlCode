@@ -297,6 +297,10 @@ VBA モードの取り込み（Windows・デスクトップ版 Excel が必要�
 - Vite は 7 系（electron-vite が Vite 8 未対応のため）
 - TypeScript は 6.0 系（typescript-eslint が 7 系未対応のため）
 
+## Windows での確認
+
+Linux の自動テストでは判断できない項目（Excel の検知、OneDrive、VBA、インストーラー、日本語 IME とショートカットなど）は、[docs/windows-checklist.html](docs/windows-checklist.html) をブラウザで開いて確認する。状態とメモはブラウザに保存され、絞り込み・並べ替え・達成率の集計ができる（表形式の元の一覧は [docs/windows-checklist.md](docs/windows-checklist.md)）。
+
 ## 受け入れ基準（13章）
 
 `tests/acceptance.test.ts`: 20 ファイル × 500 行を全件変更した Build が約 0.2 秒（基準 3 秒）、Build → Sync の往復で差分なし。

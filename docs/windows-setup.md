@@ -16,20 +16,22 @@ cd xlCode
 
 ## A. アプリとして使う（インストーラー。Node.js 不要）
 
-1. `release\installer\join.bat` をダブルクリック → `xlCode-Setup-1.5.0.exe` ができる
+1. `release\installer\join.bat` をダブルクリック → `xlCode-Setup-1.6.0.exe` ができる
 2. （任意）ハッシュを確認する
 
    ```bat
-   certutil -hashfile release\installer\xlCode-Setup-1.5.0.exe SHA256
+   certutil -hashfile release\installer\xlCode-Setup-1.6.0.exe SHA256
    ```
 
-   `1e340281c39c93b3bc675a7264af373b2ef2d81c42a5ff1ed6bdbf04a3900362` と一致すれば OK
-3. `xlCode-Setup-1.5.0.exe` を実行し、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
+   `04f155b470975ffe45f72fc5a07827c1c3e9b9d0d4fa5d2f15bc66d54bfe9050` と一致すれば OK
+3. `xlCode-Setup-1.6.0.exe` を実行し、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
    - SmartScreen の警告が出たら「詳細情報 → 実行」（署名がないため）
    - 会社の AppLocker などで起動できない場合は「すべてのユーザー」（Program Files）で試す
 4. スタートメニュー・デスクトップの xlCode から起動する
 
 ## B. ソース版で動かす（npm install 不要。Node.js 22 以上が必要）
+
+> `release\xlCode-src-win.zip` は 1.5.2 のときに作ったもの（ソースも 1.5.2）。1.6.0 のソースで動かすには、展開した `node_modules` だけを clone した `C:\dev\xlCode\` に移して `npm run dev` する（下の「Git の履歴付きで開発したい場合」）。
 
 1. `node -v` で 22 以上か確認する
 2. `release\join.bat` をダブルクリック → `release\xlCode-src-win.zip` ができる

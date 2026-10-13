@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>xlCode Windows 確認 TODO</title>
+<meta name="description" content="Windows 上でしか判断できない xlCode の動作確認項目。チェック状態はこのブラウザに保存されます。" />
+<style>
+  :root {
+    --bg: #1f1f1f; --side: #181818; --line: #2b2b2b; --hover: #2a2d2e; --input: #313131;
+    --fg: #cccccc; --strong: #e7e7e7; --muted: #9d9d9d; --faint: #6e7681;
+    --accent: #0078d4; --ok: #73c991; --ng: #f85149; --hold: #cca700; --todo: #6e7681; --new: #4fc1ff;
+    --font: 'Segoe UI', 'Yu Gothic UI', 'Meiryo UI', system-ui, sans-serif;
+    --mono: Consolas, 'Cascadia Code', 'BIZ UDGothic', ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #ffffff; --side: #f3f3f3; --line: #e0e0e0; --hover: #e8e8e8; --input: #ffffff;
+      --fg: #3b3b3b; --strong: #1f1f1f; --muted: #616161; --faint: #8a8a8a;
+      --accent: #005fb8; --ok: #1a7f37; --ng: #cf222e; --hold: #9a6700; --todo: #8a8a8a; --new: #0b6fcf;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --side: #f3f3f3; --line: #e0e0e0; --hover: #e8e8e8; --input: #ffffff;
+    --fg: #3b3b3b; --strong: #1f1f1f; --muted: #616161; --faint: #8a8a8a;
+    --accent: #005fb8; --ok: #1a7f37; --ng: #cf222e; --hold: #9a6700; --todo: #8a8a8a; --new: #0b6fcf;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.6 var(--font); }
+  body { padding: 0 16px 48px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  header { padding: 20px 0 12px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0 0 4px; font-size: 22px; font-weight: 300; color: var(--strong); }
+  header p { margin: 0; color: var(--muted); }
+  code, kbd { font-family: var(--mono); font-size: 12px; background: rgba(127,127,127,.15); padding: 0 4px; border-radius: 3px; }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 14px 0; }
+  .stat { background: var(--side); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; }
+  .stat .n { font-size: 24px; font-weight: 300; color: var(--strong); font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 12px; color: var(--muted); }
+  .stat.ok .n { color: var(--ok); } .stat.ng .n { color: var(--ng); } .stat.hold .n { color: var(--hold); }
+  .bar { height: 8px; background: rgba(127,127,127,.2); border-radius: 4px; overflow: hidden; display: flex; }
+  .bar span { height: 100%; display: block; }
+  .bar .ok { background: var(--ok); } .bar .ng { background: var(--ng); } .bar .hold { background: var(--hold); }
+  .cats { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 6px 18px; margin: 6px 0 16px; }
+  .cat { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; font-size: 12px; cursor: pointer; padding: 3px 6px; border-radius: 3px; }
+  .cat:hover { background: var(--hover); }
+  .cat .bar { grid-column: 1 / -1; }
+  .cat .r { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .toolbar { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .toolbar label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+  select, input[type="search"], input[type="text"], textarea, button {
+    font: inherit; color: var(--fg); background: var(--input); border: 1px solid var(--line); border-radius: 3px; padding: 3px 8px; }
+  input[type="search"] { min-width: 220px; }
+  select:focus, input:focus, textarea:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
+  button { cursor: pointer; } button:hover { background: var(--hover); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .spacer { flex: 1; }
+  .count { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 8px 8px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th.sortable { cursor: pointer; } th.sortable:hover { color: var(--strong); }
+  th .arrow { opacity: .6; margin-left: 2px; }
+  td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr.item:hover td { background: var(--hover); }
+  tr.item.ok td.title { text-decoration: line-through; color: var(--muted); }
+  td.id { font-family: var(--mono); color: var(--faint); white-space: nowrap; width: 1%; }
+  td.title { color: var(--strong); min-width: 220px; }
+  td.title .sub { color: var(--muted); font-weight: normal; margin-top: 2px; }
+  td.title .steps { color: var(--fg); margin-top: 4px; white-space: pre-wrap; }
+  td.title .expect { color: var(--muted); margin-top: 4px; white-space: pre-wrap; }
+  td.title .expect::before { content: '期待: '; color: var(--faint); }
+  td.status { width: 1%; white-space: nowrap; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 2px 8px; background: transparent; color: var(--muted); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { color: #fff; }
+  .seg button.on.todo { background: var(--todo); } .seg button.on.ok { background: var(--ok); color: #0b2412; }
+  .seg button.on.ng { background: var(--ng); } .seg button.on.hold { background: var(--hold); color: #2a2000; }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line); color: var(--muted); margin-left: 4px; vertical-align: 1px; }
+  .tag.new { color: var(--new); border-color: var(--new); }
+  .pri { font-size: 11px; white-space: nowrap; }
+  .pri.high { color: var(--ng); } .pri.mid { color: var(--hold); } .pri.low { color: var(--faint); }
+  td.note { width: 26%; min-width: 180px; }
+  td.note textarea { width: 100%; min-height: 34px; resize: vertical; font-size: 12px; }
+  td.note .when { color: var(--faint); font-size: 11px; margin-top: 2px; }
+  .group td { background: var(--side); color: var(--strong); font-weight: 600; padding: 10px 8px 6px; }
+  .group .desc { color: var(--muted); font-weight: normal; font-size: 12px; }
+  .empty { padding: 30px; text-align: center; color: var(--muted); }
+  footer { margin-top: 28px; color: var(--faint); font-size: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .hidden { display: none !important; }
+  @media (max-width: 760px) {
+    td.note { min-width: 120px; }
+    td.title .steps, td.title .expect { font-size: 12px; }
+  }
+  @media print {
+    .toolbar, td.note textarea, footer button { display: none; }
+    body { background: #fff; color: #000; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>xlCode Windows 確認 TODO</h1>
+    <p>Windows 上でしか判断できない項目だけをまとめた一覧です。Linux の自動テスト（単体 223 件・E2E 28 件）で確認済みのことは含みません。
+      チェックの状態とメモは、このブラウザに保存されます（別の PC・別のブラウザには引き継がれません。「書き出し」で JSON にして持ち運べます）。</p>
+  </header>
+
+  <section class="summary" id="summary"></section>
+  <div class="bar" id="totalBar" title="全体の進み具合"></div>
+  <section class="cats" id="cats"></section>
+
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="検索（例: OneDrive、Ctrl+W、.xlsm）" aria-label="検索" />
+    <label>分類 <select id="fCat"><option value="">すべて</option></select></label>
+    <label>状態 <select id="fStatus">
+      <option value="">すべて</option>
+      <option value="open">未確認 + NG（残り）</option>
+      <option value="todo">未確認</option>
+      <option value="ok">OK</option>
+      <option value="ng">NG</option>
+      <option value="hold">保留</option>
+    </select></label>
+    <label>優先度 <select id="fPri">
+      <option value="">すべて</option>
+      <option value="high">高</option>
+      <option value="mid">中</option>
+      <option value="low">低</option>
+    </select></label>
+    <label><input type="checkbox" id="fNew" /> 今回の変更（1.6.0）だけ</label>
+    <label>並べ替え <select id="sort">
+      <option value="id">番号順</option>
+      <option value="pri">優先度 → 番号</option>
+      <option value="status">状態（未 → NG → 保留 → OK）→ 番号</option>
+      <option value="updated">更新が新しい順</option>
+    </select></label>
+    <span class="spacer"></span>
+    <span class="count" id="count"></span>
+    <button id="export" title="状態とメモを JSON で保存">書き出し</button>
+    <button id="import" title="書き出した JSON を読み込む">読み込み</button>
+    <input type="file" id="importFile" accept="application/json" class="hidden" />
+    <button id="theme" title="配色を切り替える">配色</button>
+    <button id="reset" title="すべての状態とメモを消す">リセット</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th class="sortable" data-sort="id">#<span class="arrow"></span></th>
+        <th>項目 / 手順 / 期待する結果</th>
+        <th class="sortable" data-sort="pri">優先度<span class="arrow"></span></th>
+        <th class="sortable" data-sort="status">状態<span class="arrow"></span></th>
+        <th>メモ・結果（生の値、スクリーンショットの場所など）</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="empty hidden" id="empty">一致する項目がありません。</div>
+
+  <footer>
+    対象コミット: <span id="rev">feature/tabs-shortcuts-xlcodeignore（1.6.0）</span>。
+    元になった一覧: <code>docs/windows-checklist.md</code>。NG のときは、出力パネルの内容と再現手順をメモに残してください。
+    保存先: <code>localStorage</code>（キー <code>xlcode-win-checklist-v1</code>）。
+  </footer>
+</div>
+
+<script>
+'use strict';
+// ---- 確認項目（Windows でしか判断できないものだけ） ----
+// pri: high / mid / low、tag: new（今回の変更）/ base（既存）
+const CATEGORIES = [
+  ['install', 'インストーラー・起動', '署名なし・メニュー無しのアプリとして、Windows で素直に入って起動するか'],
+  ['menu', 'メニュー削除とウィンドウ', '今回 Electron の既定メニューを外した影響。Ctrl+W / Ctrl+R がウィンドウではなくアプリの操作になるか'],
+  ['keys', 'ショートカット・IME', '日本語キーボードと IME での割り当て。英語配列と違うキー（Ctrl+@ など）'],
+  ['tabs', 'タブ・エクスプローラー', 'Windows の環境（復元先の userData、ドラッグ、中クリック、高 DPI）での動き'],
+  ['lock', 'デスクトップ版 Excel の検知', 'ロックファイル・ファイルロックで「開いている」を検知できるか'],
+  ['open', 'Excel で開く', 'デスクトップ版 / Web 版 / Copilot で開けるか。URL の自動解決'],
+  ['onedrive', 'OneDrive の同期状態', 'シェルプロパティの値の意味。同期待ち・一時停止・エラー・未起動'],
+  ['bookroot', 'ブックの置き場所', 'OneDrive 内の専用フォルダへの移動、「移動しない」での変更、一時的なロックの再試行'],
+  ['ignore', 'ブックにしないファイル', '.xlcodeignore の Windows でのパス・大文字小文字の扱い'],
+  ['excel', 'Excel / Copilot の挙動', 'Excel の自動変換、書式、Copilot の省略、Agents.md の分量'],
+  ['encoding', '文字コード・改行', 'Shift_JIS / UTF-8 BOM / CRLF の往復と、Windows でのファイル名'],
+  ['save', 'UI 用シートとブックの保存', '部分的に書き換えた xlsx を本物の Excel が修復なしで開けるか'],
+  ['vba', 'VBA モード', 'デスクトップ版 Excel（COM）で VBA を書き込む Build'],
+  ['import', '取り込み', '既存の .xlsm から編集用ブックを作る'],
+  ['misc', 'その他', 'ターミナル・パス長・通知など'],
+];
+const ITEMS = [
+  // インストーラー・起動
+  { id: 'I-1', cat: 'install', pri: 'high', tag: 'base', title: 'インストーラーが起動し、インストール先を選べる', steps: 'release\\installer\\join.bat → xlCode-Setup-1.6.0.exe を実行', expect: '「自分だけ / すべてのユーザー」とインストール先を選べる。SmartScreen は「詳細情報 → 実行」で進める' },
+  { id: 'I-2', cat: 'install', pri: 'high', tag: 'base', title: '「自分だけ」で管理者権限なしに入る', steps: '「自分だけ」を選んで完了', expect: 'UAC が出ない。%LOCALAPPDATA%\\Programs\\xlCode に xlCode.exe と Uninstall xlCode.exe がある' },
+  { id: 'I-3', cat: 'install', pri: 'mid', tag: 'base', title: 'スタートメニュー・デスクトップ・「アプリと機能」', steps: 'インストール後に確認', expect: 'ショートカットにアイコンが出る。設定 → アプリに xlCode 1.6.0 があり、アンインストールできる' },
+  { id: 'I-4', cat: 'install', pri: 'high', tag: 'base', title: '1.5.x からの上書きインストール', steps: '1.5.2 を入れた PC で 1.6.0 を実行', expect: 'そのまま上書きされ、最近使ったプロジェクト・使う Excel の設定が残る' },
+  { id: 'I-5', cat: 'install', pri: 'mid', tag: 'base', title: '会社のセキュリティ設定（AppLocker 等）', steps: '%LOCALAPPDATA%\\Programs から起動', expect: '起動できる。止められるなら「すべてのユーザー」（Program Files）で起動できる' },
+  { id: 'I-6', cat: 'install', pri: 'mid', tag: 'base', title: '2 つ目の起動は 1 つ目を前面にする', steps: '起動中にもう一度ショートカットを押す', expect: '新しいウィンドウは開かず、既存のウィンドウが前面に出る' },
+  { id: 'I-7', cat: 'install', pri: 'mid', tag: 'base', title: 'ソース版（xlCode-src-win.zip）で npm run dev', steps: 'release\\join.bat → tar -xf → npm run dev（Node.js 22 以上）', expect: 'npm install なしで起動する。1.6.0 のソースと node_modules の組み合わせで動く' },
+  // メニュー削除とウィンドウ
+  { id: 'M-1', cat: 'menu', pri: 'high', tag: 'new', title: 'Ctrl+W がウィンドウを閉じない', steps: 'ブックのタブを 2 つ開いて Ctrl+W', expect: 'タブだけが閉じる。タブが 0 枚の状態で Ctrl+W を押してもウィンドウは閉じない' },
+  { id: 'M-2', cat: 'menu', pri: 'high', tag: 'new', title: 'Ctrl+R が画面を再読み込みしない', steps: 'Ctrl+R', expect: '「最近使用したプロジェクト」のパレットが出る。画面が白くなったり出力パネルが消えたりしない' },
+  { id: 'M-3', cat: 'menu', pri: 'mid', tag: 'new', title: 'メニューバーが出ない。Alt キーで何も起きない', steps: 'Alt を押す・離す。F10 を押す', expect: 'メニューバーが一瞬も出ない。Alt+1 などの割り当てが効く' },
+  { id: 'M-4', cat: 'menu', pri: 'mid', tag: 'new', title: '製品版では F12 / Ctrl+Shift+I で開発者ツールが開かない', steps: 'インストールした xlCode で F12、Ctrl+Shift+I', expect: '何も起きない（npm run dev では開く）' },
+  { id: 'M-5', cat: 'menu', pri: 'mid', tag: 'base', title: 'タイトルバーの最小化・最大化・閉じるボタン', steps: '右上のボタンを押す。タイトルバーをダブルクリック・ドラッグ', expect: 'それぞれ動く。タブバーのドラッグ（並べ替え）とウィンドウの移動がぶつからない' },
+  { id: 'M-6', cat: 'menu', pri: 'mid', tag: 'base', title: '未保存のドキュメントがあるときに閉じる', steps: 'Agents.md を編集して保存せずに × で閉じる', expect: '「保存していない Markdown があります」の確認（OS のダイアログ）が出て、キャンセルで戻れる' },
+  { id: 'M-7', cat: 'menu', pri: 'low', tag: 'new', title: 'Ctrl+= / Ctrl+- / Ctrl+0 の拡大縮小', steps: 'それぞれ押す', expect: '拡大縮小しない（メニューを外したため）。必要なら要望として記録する' },
+  { id: 'M-8', cat: 'menu', pri: 'low', tag: 'new', title: 'F11 で全画面にならない', steps: 'F11', expect: '何も起きない。Alt+F4 は今までどおりウィンドウを閉じる' },
+  // ショートカット・IME
+  { id: 'K-1', cat: 'keys', pri: 'high', tag: 'new', title: 'Ctrl+Shift+B / Ctrl+Shift+S で Build / Sync', steps: 'ブックのタブを表示して押す', expect: 'Build / Sync の確認が始まる。文字入力中（Agents.md のタブ）でも効く' },
+  { id: 'K-2', cat: 'keys', pri: 'high', tag: 'new', title: 'Ctrl+P / Ctrl+Shift+P / Ctrl+R / Ctrl+, / Ctrl+B / Ctrl+J', steps: '順に押す', expect: 'クイックオープン / コマンドパレット / 最近 / 設定タブ / サイドバー / パネル。Ctrl+P で印刷ダイアログが出ない' },
+  { id: 'K-3', cat: 'keys', pri: 'high', tag: 'new', title: '日本語キーボードで Ctrl+@（ターミナル）', steps: 'ブックを表示して Ctrl+@（英語配列の Ctrl+` に相当）', expect: 'Windows Terminal（無ければ cmd）がブックのフォルダで開く' },
+  { id: 'K-4', cat: 'keys', pri: 'high', tag: 'new', title: 'IME オンで Ctrl+Shift+P → 日本語で検索', steps: 'IME を ON にして Ctrl+Shift+P、「びるど」と入力して変換・確定（Enter）', expect: '変換の確定の Enter でコマンドが実行されない。確定後にもう一度 Enter で実行される' },
+  { id: 'K-5', cat: 'keys', pri: 'mid', tag: 'new', title: 'IME オンでサイドバーの一覧をキー操作', steps: 'Ctrl+Shift+E → ↑↓ → Enter', expect: 'IME の状態に関係なく移動・開くが動く' },
+  { id: 'K-6', cat: 'keys', pri: 'mid', tag: 'new', title: 'Alt+1〜9 でタブを選ぶ（Alt でメニューが出ない）', steps: 'タブを 3 つ開いて Alt+2', expect: '2 番目のタブになる。Alt を離してもフォーカスがどこかへ飛ばない' },
+  { id: 'K-7', cat: 'keys', pri: 'mid', tag: 'new', title: 'Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+PageDown / Ctrl+PageUp', steps: 'タブを 3 つ開いて順に押す', expect: '次 / 前 / 次 / 前のタブになる' },
+  { id: 'K-8', cat: 'keys', pri: 'mid', tag: 'new', title: 'Ctrl+K Ctrl+S / Ctrl+K Ctrl+W / Ctrl+K Ctrl+O（2 段階）', steps: 'Ctrl+K を押すとステータスバーに「(Ctrl+K) が押されました」と出る。続けて S / W / O', expect: 'ショートカット一覧のヘルプ / すべて閉じる / プロジェクトを開く。3 秒放置すると解除される' },
+  { id: 'K-9', cat: 'keys', pri: 'mid', tag: 'new', title: 'Ctrl+Shift+T で閉じたタブを開き直す。Ctrl+F4 で閉じる', steps: 'タブを閉じてから Ctrl+Shift+T。Ctrl+F4', expect: '開き直る。閉じる' },
+  { id: 'K-10', cat: 'keys', pri: 'mid', tag: 'new', title: 'F5 で再読み込み、F1 でヘルプ', steps: 'Excel でブックを保存した直後に F5', expect: 'ファイルの状態が更新される。F1 でヘルプのタブが開く' },
+  { id: 'K-11', cat: 'keys', pri: 'mid', tag: 'new', title: 'ドキュメントの編集中の Ctrl+S / Tab / Shift+Tab', steps: 'Agents.md のタブで入力して Ctrl+S、行頭で Tab、Shift+Tab', expect: '保存される。2 つの空白で字下げ・戻しができる。IME の変換中の Tab で字下げされない' },
+  { id: 'K-12', cat: 'keys', pri: 'low', tag: 'new', title: 'ツールチップにキーが出る', steps: 'Build / Sync / ターミナルのボタンにマウスを乗せる', expect: '「(Ctrl+Shift+B)」などが Windows の表記（Ctrl+…）で出る' },
+  // タブ・エクスプローラー
+  { id: 'T-1', cat: 'tabs', pri: 'high', tag: 'new', title: '開いていたタブが再起動後に復元される', steps: 'タブを 3 つ開いてアプリを終了 → 起動 → 同じプロジェクトを開く', expect: '同じタブが同じ順で復元され、表示中のタブも同じ（%APPDATA%\\xlCode の localStorage）' },
+  { id: 'T-2', cat: 'tabs', pri: 'mid', tag: 'new', title: 'タブのドラッグで並べ替え', steps: 'タブを 3 つ開いてマウスでドラッグ', expect: '並びが変わる。ウィンドウが動かない。右の余白へ落とすと末尾になる' },
+  { id: 'T-3', cat: 'tabs', pri: 'mid', tag: 'new', title: '中クリックで閉じる。右クリックメニュー', steps: 'ホイールクリック。右クリック →「ほかのタブを閉じる」', expect: '閉じる。メニューが出て動く。右クリックで OS のメニューが出ない' },
+  { id: 'T-4', cat: 'tabs', pri: 'mid', tag: 'new', title: 'タブが多いときの横スクロール', steps: 'タブを 15 個開く', expect: 'ホイールで横に動く。表示中のタブが見える位置へ自動で動く' },
+  { id: 'T-5', cat: 'tabs', pri: 'mid', tag: 'new', title: '高 DPI（125% / 150%）での表示', steps: 'ディスプレイの拡大率を変えて起動', expect: 'タブ・サイドバー・パレットがにじまず、文字が切れない' },
+  { id: 'T-6', cat: 'tabs', pri: 'mid', tag: 'new', title: 'エクスプローラーの Agents.md / LocalAgents.md / .xlcodeignore', steps: 'それぞれ押す。無いファイル（薄い字）を開いて保存', expect: 'タブで開く。保存で作られ、薄い字が通常の表示になる。VS Code で同じファイルを直すと「ほかの場所で変更されました」が出る' },
+  { id: 'T-7', cat: 'tabs', pri: 'low', tag: 'new', title: 'プロジェクトを切り替えてもタブは混ざらない', steps: 'A を開いてタブを作り、Ctrl+R で B を開き、再び A', expect: 'A のタブだけが戻る' },
+  // デスクトップ版 Excel の検知
+  { id: 'L-1', cat: 'lock', pri: 'high', tag: 'base', title: 'OneDrive 外のブックをデスクトップ版で開く', steps: '「デスクトップで開く」', expect: 'サイドバーに鍵、Build / Sync が押せない。フォルダに ~$ ファイルができる' },
+  { id: 'L-2', cat: 'lock', pri: 'high', tag: 'base', title: 'Excel を閉じると自動で解除される', steps: 'L-1 の状態で閉じる', expect: '数秒以内に鍵が消え、出力に「Excel が閉じられました」' },
+  { id: 'L-3', cat: 'lock', pri: 'high', tag: 'base', title: 'OneDrive 内のブック（自動保存オン）を開く', steps: '置き場所を OneDrive にして「デスクトップで開く」', expect: '鍵が付く。付かない場合は ~$ の有無と出力の EBUSY 等を記録する' },
+  { id: 'L-4', cat: 'lock', pri: 'mid', tag: 'base', title: '自動保存オフでも検知する', steps: 'L-3 で自動保存をオフ', expect: '鍵が付く' },
+  { id: 'L-5', cat: 'lock', pri: 'mid', tag: 'base', title: 'Excel が異常終了して ~$ が残ったとき', steps: 'タスク マネージャーで EXCEL.EXE を終了', expect: '鍵が残る。ヘルプの手順（~$ を削除）で解除できる' },
+  // Excel で開く
+  { id: 'O-1', cat: 'open', pri: 'high', tag: 'base', title: '「デスクトップで開く」（変更あり）', steps: 'エディタでファイルを変えてから押す', expect: 'Sync してからデスクトップ版 Excel で開く。変更が無ければ確認なしですぐ開く' },
+  { id: 'O-2', cat: 'open', pri: 'high', tag: 'base', title: '「Webで開く」（OneDrive for Business）', steps: '会社の OneDrive の同期フォルダ内のブックで押す', expect: 'ブラウザで Excel for the web が開き、Copilot が使える' },
+  { id: 'O-3', cat: 'open', pri: 'high', tag: 'base', title: '「Webで開く」（SharePoint のライブラリを同期したフォルダ）', steps: '同上', expect: '同上。日本語のフォルダ名でも開く' },
+  { id: 'O-4', cat: 'open', pri: 'high', tag: 'base', title: '「Webで開く」（個人用 OneDrive）', steps: 'Microsoft アカウントの OneDrive で押す', expect: '404 にならず開く。開けないときは「オンラインで表示」に切り替わる' },
+  { id: 'O-5', cat: 'open', pri: 'mid', tag: 'base', title: 'Sync 直後の Web 版が最新か', steps: 'Sync → すぐ「Webで開く」', expect: 'アップロード完了を待ってから開くので最新。何秒待ったかを記録' },
+  { id: 'O-6', cat: 'open', pri: 'mid', tag: 'base', title: '設定の「Web 版の URL」を手で入れて開く', steps: 'URL を入力して「Webで開く」', expect: '入力した URL のフォルダのブックが開く' },
+  { id: 'O-7', cat: 'open', pri: 'mid', tag: 'base', title: '「Web 版 Excel でこのブックを閉じましたか？」の確認', steps: '使う Excel = 両方 / Web 版のみ で Build', expect: '確認が出る。「アプリを閉じるまで確認しない」で次から出ない。Web で開き直すとまた出る' },
+  // OneDrive
+  { id: 'D-1', cat: 'onedrive', pri: 'high', tag: 'base', title: '同期済みの表示と生の値', steps: '何もしていない状態でステータスバーの「OneDrive: 〜」を押す', expect: '「同期済み」。出力の attrs / sts / sps を記録' },
+  { id: 'D-2', cat: 'onedrive', pri: 'high', tag: 'base', title: 'Build / Sync 直後（アップロード中）', steps: '大きめのブックで Sync', expect: '「アップロード待ち / 同期中」→「同期済み」に変わる' },
+  { id: 'D-3', cat: 'onedrive', pri: 'high', tag: 'base', title: 'OneDrive を一時停止', steps: '一時停止して Build', expect: '「同期が一時停止中」。Build 時に続けるかの確認が出る' },
+  { id: 'D-4', cat: 'onedrive', pri: 'mid', tag: 'base', title: 'OneDrive を終了', steps: 'OneDrive を終了して Build', expect: '「起動していません」。確認が出る' },
+  { id: 'D-5', cat: 'onedrive', pri: 'mid', tag: 'base', title: '「オンラインのみ」のブック', steps: 'ブックを「空き領域を増やす」にする', expect: '「オンラインのみ」。開くときにダウンロードされ、Build できる' },
+  { id: 'D-6', cat: 'onedrive', pri: 'high', tag: 'base', title: 'Web 版で編集 → 閉じる → すぐ Build', steps: 'Web 版で編集してすぐ Build', expect: '「まだこの PC に届いていない可能性」→「届くまで待つ」で、届いたら自動で続行' },
+  { id: 'D-7', cat: 'onedrive', pri: 'mid', tag: 'base', title: '2 台の PC で同じブックを編集', steps: '別の PC でも編集して同期', expect: '「ブック名-PC名.xlsx」の複製ができたら警告が出る' },
+  { id: 'D-8', cat: 'onedrive', pri: 'mid', tag: 'base', title: '同期待ちが 2 分で諦める', steps: '通信を切って Build', expect: '2 分後に「同期が終わりません」の確認' },
+  // ブックの置き場所
+  { id: 'B-1', cat: 'bookroot', pri: 'high', tag: 'base', title: '最初のブック作成で OneDrive のフォルダを選ぶ', steps: 'C:\\dev\\〜 のソースで「OneDrive のフォルダを選ぶ…」', expect: 'ブックだけが OneDrive に作られ、.git はソース側に残る' },
+  { id: 'B-2', cat: 'bookroot', pri: 'high', tag: 'new', title: '設定で置き場所を変えて移動する', steps: '設定 → フォルダを選ぶ… →「変更してブック N 冊を移動」', expect: '同じフォルダ構成で移動し、ファイルの状態（同期済みなど）が保たれる。サイドバーの「置き場所: 〜」が変わる' },
+  { id: 'B-3', cat: 'bookroot', pri: 'high', tag: 'new', title: 'パスを入力して変える（Windows のパス）', steps: '入力欄に C:\\Users\\…\\OneDrive - 会社\\xlCode\\shop を貼り付けて Enter', expect: '変更できる。末尾の \\ や引用符付きでも扱える（扱えなければ記録）' },
+  { id: 'B-4', cat: 'bookroot', pri: 'high', tag: 'new', title: '「既存のブックを移動しない」で設定だけ変える', steps: 'エクスプローラーで OneDrive のフォルダ名を変えてから、設定でチェックを入れて新しいパスへ「変更」', expect: 'ブックは動かず、新しい場所のブックがそのまま一覧に出る。state（ファイルの状態）が保たれる' },
+  { id: 'B-5', cat: 'bookroot', pri: 'high', tag: 'new', title: 'OneDrive の同期中に移動する（一時的なロック）', steps: '大きなブックを Sync した直後（アップロード中）に置き場所を変える', expect: '2 秒ほど待ってから移動する。本当に Excel で開いているときは「開かれています」で止まる' },
+  { id: 'B-6', cat: 'bookroot', pri: 'mid', tag: 'new', title: '移動できないときの案内', steps: 'Excel でブックを開いたまま移動', expect: '「何も動かしていません」と、どのブックが問題かの一覧。「移動せずに変更」の案内' },
+  { id: 'B-7', cat: 'bookroot', pri: 'mid', tag: 'base', title: '置き場所を OneDrive にした状態の Copilot', steps: '「デスクトップで開く」→ Copilot', expect: 'Copilot が使える（OneDrive 上のブックのため）' },
+  { id: 'B-8', cat: 'bookroot', pri: 'mid', tag: 'base', title: 'OneDrive のパスが長い', steps: '深いフォルダに置く', expect: '218 文字を超えると警告が出る。Excel で開ける' },
+  { id: 'B-9', cat: 'bookroot', pri: 'low', tag: 'base', title: '別のドライブへ移動', steps: 'D:\\ の OneDrive へ', expect: 'コピーしてから消すので動く' },
+  // ブックにしないファイル
+  { id: 'G-1', cat: 'ignore', pri: 'high', tag: 'new', title: '.xlcodeignore の雛形が Windows の改行で保存される', steps: 'ブック作成 → .xlcodeignore をメモ帳で開く', expect: '読める（行がつながっていない）。Git の autocrlf で差分が暴れない' },
+  { id: 'G-2', cat: 'ignore', pri: 'high', tag: 'new', title: 'フォルダの除外（docs/）と Windows の \\ 区切り', steps: 'docs/ と build\\ を書いて保存 → Refresh Tree → ブック作成', expect: 'docs/ は効く。build\\ は効かない（/ で書く必要がある）ことを確認し、ヘルプの説明と合っているか見る' },
+  { id: 'G-3', cat: 'ignore', pri: 'mid', tag: 'new', title: '大文字小文字（Docs/ と docs）', steps: 'Docs フォルダがある状態で docs/ と書く', expect: 'Windows でも大文字小文字は区別されるため効かない。効かなかったら記録（仕様として明記するか検討）' },
+  { id: 'G-4', cat: 'ignore', pri: 'high', tag: 'new', title: 'ブック作成前の確認（.gitignore に従う）', steps: '.xlcodeignore を空のままブックを作る', expect: '「ブックにしないファイルの指定がありません」。.gitignore の件数と、シートになるファイル数が正しい' },
+  { id: 'G-5', cat: 'ignore', pri: 'mid', tag: 'new', title: '.gitignore も無いプロジェクトで node_modules を含むフォルダ', steps: 'npm install 済みで .gitignore の無いフォルダを開き、ルートにブックを作ろうとする', expect: '全ファイルがシートになる旨の警告。「先に .xlcodeignore を編集」で雛形が開く' },
+  // Excel / Copilot
+  { id: 'E-1', cat: 'excel', pri: 'high', tag: 'base', title: 'Copilot に = / 007 / 日付 を書かせて Build', steps: '新しいシートに「=」で始まる行、007、2026-01-01 を書かせる', expect: '型エラーにならず文字列のまま出力される。自動変換されたら「N 行目が文字列ではありません」で止まる' },
+  { id: 'E-2', cat: 'excel', pri: 'mid', tag: 'base', title: '条件付き書式・メモ・図形を付けたブックを Sync', steps: 'コードのシートに付けてから Sync', expect: '何が消えるかを記録（UI 用シートは消えない）' },
+  { id: 'E-3', cat: 'excel', pri: 'mid', tag: 'base', title: 'Agents.md の分量と Copilot の生成停止', steps: '100 行超の Agents.md で Copilot に大きな変更を頼む', expect: '何行で止まるかを記録。警告の目安（100 行）が妥当か' },
+  { id: 'E-4', cat: 'excel', pri: 'mid', tag: 'base', title: 'Copilot の省略（…既存のコード…）を検知する', steps: '大きなファイルを Copilot に縮めさせて Build', expect: '「コードが大きく減っています」の確認が出る。差分で省略が見える' },
+  { id: 'E-5', cat: 'excel', pri: 'mid', tag: 'base', title: '衝突シートを Copilot に統合させる', steps: '両側で変更 → Build → Copilot に「A 列と B 列を統合して…」', expect: '統合され、衝突シートが消え、次の Build で Excel 側が採用される' },
+  // 文字コード
+  { id: 'C-1', cat: 'encoding', pri: 'high', tag: 'base', title: 'Copilot に .bat を作らせて実行', steps: 'Build → ダブルクリック', expect: '日本語の echo が化けない（Shift_JIS・CRLF）' },
+  { id: 'C-2', cat: 'encoding', pri: 'mid', tag: 'base', title: '.ps1 を Windows PowerShell 5.1 で実行', steps: 'Build → 実行', expect: '日本語が化けない（UTF-8 BOM・CRLF）' },
+  { id: 'C-3', cat: 'encoding', pri: 'mid', tag: 'base', title: '既存の Shift_JIS のファイルを Excel で編集して Build', steps: 'Build 後にエディタで開く', expect: 'Shift_JIS のまま化けていない。絵文字を入れるとエラーで止まる' },
+  { id: 'C-4', cat: 'encoding', pri: 'mid', tag: 'base', title: 'core.autocrlf=true の CRLF ファイルを Build', steps: 'git diff', expect: '改行だけの差分が出ない' },
+  { id: 'C-5', cat: 'encoding', pri: 'mid', tag: 'base', title: 'Windows で使えない名前（CON.ts、末尾のピリオド）', steps: 'Excel でそのシートを作って Build', expect: '「Windows の予約名」などのエラーで止まる。ファイルは作られない' },
+  // UI 用シートと保存
+  { id: 'S-1', cat: 'save', pri: 'high', tag: 'base', title: 'xlCode が書いたブックを Excel が修復なしで開く', steps: 'ブック作成 / Build / Sync / Refresh Tree の後にデスクトップ版で開く', expect: '「修復しますか」が出ない。コードのシートが文字列書式・Consolas' },
+  { id: 'S-2', cat: 'save', pri: 'high', tag: 'base', title: 'UI 用シート（図形・ボタン・グラフ・条件付き書式・入力規則）が残る', steps: '作ってから Build / Sync', expect: 'そのまま残る' },
+  { id: 'S-3', cat: 'save', pri: 'mid', tag: 'base', title: '印刷範囲のある UI 用シートと DEL_ 削除', steps: 'コードのシートを DEL_ で削除', expect: '印刷範囲が UI 用シートのまま' },
+  { id: 'S-4', cat: 'save', pri: 'mid', tag: 'base', title: 'Web 版 Excel で開く', steps: 'S-1 と同じブックを Web 版で', expect: '修復なしで開く' },
+  { id: 'S-5', cat: 'save', pri: 'mid', tag: 'base', title: '拡張子のないシート（UI、データ）', steps: 'Build / Sync', expect: '対象にならず、ファイルも作られない' },
+  // VBA
+  { id: 'V-1', cat: 'vba', pri: 'high', tag: 'base', title: 'VBA モードで空のブックを作る', steps: '新しいフォルダで「VBA」→「空のブックを作成」', expect: 'Module1.bas・References.refs（Shift_JIS・CRLF）ができ、シートに入る。.gitignore に *.xlsm' },
+  { id: 'V-2', cat: 'vba', pri: 'high', tag: 'base', title: '画面のシートとボタンを作って Build', steps: 'Sub Hello のモジュールとボタン → Build', expect: '<フォルダ名>.xlsm ができ、拡張子付きのシートは無い。ボタンで「こんにちは」' },
+  { id: 'V-3', cat: 'vba', pri: 'high', tag: 'base', title: 'Class1.cls・ThisWorkbook.cls・<シート名>.cls', steps: 'それぞれ作って Build', expect: 'VBE でそれぞれの場所に入り、イベントが動く' },
+  { id: 'V-4', cat: 'vba', pri: 'high', tag: 'base', title: 'UserForm1.frm の配置とイベント', steps: 'Agents.md の例のとおり書いて Build → ShowForm', expect: '配置・Caption が書いたとおり。ボタンのイベントが動く' },
+  { id: 'V-5', cat: 'vba', pri: 'mid', tag: 'base', title: 'Frame 内の OptionButton、MultiPage、Font.Size、BackColor', steps: 'フォームに書いて Build', expect: '書いたとおりに表示される' },
+  { id: 'V-6', cat: 'vba', pri: 'mid', tag: 'base', title: '存在しないプロパティ（Foo = 1）', steps: 'Build', expect: '「UserForm1.frm N 行目（Foo）」のエラー。ソースは出力され .xlsm は変わらない' },
+  { id: 'V-7', cat: 'vba', pri: 'high', tag: 'base', title: 'VBOM の信頼を外して Build', steps: 'トラスト センターのチェックを外す', expect: '設定方法の案内付きのエラー。.xlsm は変わらない' },
+  { id: 'V-8', cat: 'vba', pri: 'high', tag: 'base', title: '別の Excel を開いたまま Build', steps: '別のブックを開いた状態で Build', expect: '開いている Excel に影響しない。Build 後に EXCEL.EXE が残らない' },
+  { id: 'V-9', cat: 'vba', pri: 'mid', tag: 'base', title: 'ビルド結果を開いたまま Build', steps: '.xlsm を開いたまま', expect: '「開かれています」で止まる' },
+  { id: 'V-10', cat: 'vba', pri: 'mid', tag: 'base', title: 'ビルド結果を直接編集してから Build', steps: 'データを入力して保存 → Build', expect: '「前回の Build の後に変更されています」。.xlcode/backup に残り、「バックアップ（1）」で開く' },
+  { id: 'V-11', cat: 'vba', pri: 'mid', tag: 'base', title: 'VS Code で .bas を直して Sync → Build', steps: '編集 → Sync → Build', expect: 'シートと .xlsm に反映。Git に .bas の差分、.xlsm は入らない' },
+  { id: 'V-12', cat: 'vba', pri: 'mid', tag: 'base', title: 'DEL_Module2.bas で削除', steps: 'Build', expect: '確認の後、ファイルと .xlsm のモジュールが消える' },
+  { id: 'V-13', cat: 'vba', pri: 'low', tag: 'base', title: 'Build にかかる時間', steps: '計る', expect: '10〜20 秒程度。3 分で中止して Excel を終了' },
+  { id: 'V-14', cat: 'vba', pri: 'mid', tag: 'base', title: 'References.refs（Scripting Runtime）', steps: 'Dim d As New Scripting.Dictionary で Build → 実行', expect: 'VBE の参照設定にチェック。コードが動く。存在しない GUID はエラーで .xlsm は変わらない' },
+  { id: 'V-15', cat: 'vba', pri: 'mid', tag: 'base', title: 'Build のあと「元に戻す」', steps: '元に戻す', expect: 'ソース・編集用ブック・.xlsm が Build 前に戻る。初めての Build なら .xlsm が消える' },
+  { id: 'V-16', cat: 'vba', pri: 'low', tag: 'base', title: 'メールで送った .xlsm のマクロ', steps: '別の PC で開く', expect: '止められたら README の手順（プロパティ →「許可する」）で動く' },
+  { id: 'V-17', cat: 'vba', pri: 'mid', tag: 'new', title: 'Windows 以外の案内が Windows では出ない', steps: 'VBA モードのブック画面', expect: '「Windows のデスクトップ版 Excel が必要です」が出ず、Build が「次の操作」になる' },
+  // 取り込み
+  { id: 'P-1', cat: 'import', pri: 'high', tag: 'base', title: '既存の .xlsm から作成', steps: '＋ →「既存の Excel ツールから作成…」', expect: '.bas / .cls / .frm / References.refs ができ、画面のシートとコードのシートが入る。元の .xlsm は変わらない' },
+  { id: 'P-2', cat: 'import', pri: 'mid', tag: 'base', title: 'フォームのあるツール', steps: '取り込み → Build', expect: '.frm に配置が書き起こされ、Build した .xlsm のフォームが元と同じ見た目で動く' },
+  { id: 'P-3', cat: 'import', pri: 'mid', tag: 'base', title: '画像付きのコントロール・RefEdit', steps: '取り込み', expect: '取り込めなかったものが「注意」として出る' },
+  { id: 'P-4', cat: 'import', pri: 'mid', tag: 'base', title: '参照設定を使っているツール', steps: '取り込み → Build', expect: 'References.refs に入り、.xlsm でも参照設定が付く' },
+  { id: 'P-5', cat: 'import', pri: 'mid', tag: 'base', title: '取り込み元を開いたまま取り込む', steps: 'Excel で開いたまま', expect: '取り込める（コピーを開く）' },
+  { id: 'P-6', cat: 'import', pri: 'mid', tag: 'base', title: '取り込み元がビルド結果の場所にある', steps: '<フォルダ名>.xlsm として置いて Build', expect: '上書きの確認。元のファイルが .xlcode/backup に残る' },
+  { id: 'P-7', cat: 'import', pri: 'mid', tag: 'new', title: '取り込み前の除外の確認', steps: '.xlcodeignore が空の VBA プロジェクトで ＋', expect: '「ブックにしないファイルの指定がありません」が出て、「このまま作成」で取り込みに進める' },
+  // その他
+  { id: 'X-1', cat: 'misc', pri: 'mid', tag: 'base', title: '「ターミナル」ボタン', steps: '押す', expect: 'Windows Terminal（無ければ cmd）がブックのフォルダで開く' },
+  { id: 'X-2', cat: 'misc', pri: 'mid', tag: 'base', title: '「フォルダ」ボタン', steps: '押す', expect: 'エクスプローラーでブックが選択された状態で開く' },
+  { id: 'X-3', cat: 'misc', pri: 'mid', tag: 'base', title: 'ウィンドウに戻ったときの再読み込み', steps: 'VS Code でファイルを直してから xlCode に戻る', expect: '状態（S）が自動で更新される' },
+  { id: 'X-4', cat: 'misc', pri: 'low', tag: 'base', title: 'Git for Windows の自動コミット', steps: 'Build', expect: '「xlcode: Build 前の自動コミット」が作られる。日本語のファイル名がエスケープされない' },
+  { id: 'X-5', cat: 'misc', pri: 'low', tag: 'base', title: 'ウイルス対策ソフトによる一時ファイルの掴み', steps: 'Build / Sync を繰り返す', expect: '「~$xlcode-*.tmp」の rename が失敗しない（失敗したら EPERM 等を記録）' },
+];
+
+const STATUS = { todo: '未確認', ok: 'OK', ng: 'NG', hold: '保留' };
+const PRI = { high: '高', mid: '中', low: '低' };
+const KEY = 'xlcode-win-checklist-v1';
+const catMap = new Map(CATEGORIES.map(([id, name, desc]) => [id, { name, desc }]));
+
+// ---- 保存（localStorage。読めない・書けない環境でも画面は動く） ----
+let state = { items: {}, ui: {} };
+function load() {
+  try {
+    const v = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (v && typeof v === 'object') state = { items: v.items || {}, ui: v.ui || {} };
+  } catch { /* 読めないときは初期値 */ }
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 保存できなくても続ける */ }
+}
+function itemState(id) { return state.items[id] || { status: 'todo', note: '', updated: 0 }; }
+function setItem(id, patch) {
+  state.items[id] = { ...itemState(id), ...patch, updated: Date.now() };
+  save();
+}
+
+// ---- フィルタ・並べ替え ----
+const $ = (s) => document.querySelector(s);
+const ui = () => state.ui;
+function filtered() {
+  const q = ($('#q').value || '').trim().toLowerCase();
+  const cat = $('#fCat').value, st = $('#fStatus').value, pri = $('#fPri').value, onlyNew = $('#fNew').checked;
+  const order = { todo: 0, ng: 1, hold: 2, ok: 3 };
+  const prio = { high: 0, mid: 1, low: 2 };
+  const idNum = (id) => { const [p, n] = id.split('-'); return [p, Number(n)]; };
+  let list = ITEMS.filter((it) => {
+    const s = itemState(it.id);
+    if (cat && it.cat !== cat) return false;
+    if (st === 'open' ? !(s.status === 'todo' || s.status === 'ng') : st && s.status !== st) return false;
+    if (pri && it.pri !== pri) return false;
+    if (onlyNew && it.tag !== 'new') return false;
+    if (q) {
+      const hay = `${it.id} ${it.title} ${it.steps} ${it.expect} ${catMap.get(it.cat).name} ${s.note}`.toLowerCase();
+      if (!q.split(/\s+/).every((t) => hay.includes(t))) return false;
+    }
+    return true;
+  });
+  const sort = $('#sort').value;
+  const byId = (a, b) => { const [pa, na] = idNum(a.id), [pb, nb] = idNum(b.id); return pa === pb ? na - nb : ITEMS.indexOf(a) - ITEMS.indexOf(b); };
+  if (sort === 'pri') list.sort((a, b) => prio[a.pri] - prio[b.pri] || byId(a, b));
+  else if (sort === 'status') list.sort((a, b) => order[itemState(a.id).status] - order[itemState(b.id).status] || byId(a, b));
+  else if (sort === 'updated') list.sort((a, b) => itemState(b.id).updated - itemState(a.id).updated || byId(a, b));
+  else list.sort(byId);
+  return list;
+}
+
+// ---- 描画 ----
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmtWhen(t) { return t ? new Date(t).toLocaleString('ja-JP', { hour12: false }) : ''; }
+
+function renderSummary() {
+  const counts = { todo: 0, ok: 0, ng: 0, hold: 0 };
+  for (const it of ITEMS) counts[itemState(it.id).status]++;
+  const total = ITEMS.length;
+  const target = total - counts.hold;
+  const rate = target ? Math.round((counts.ok / target) * 100) : 0;
+  const newItems = ITEMS.filter((i) => i.tag === 'new');
+  const newOk = newItems.filter((i) => itemState(i.id).status === 'ok').length;
+  const newHold = newItems.filter((i) => itemState(i.id).status === 'hold').length;
+  const newRate = newItems.length - newHold ? Math.round((newOk / (newItems.length - newHold)) * 100) : 0;
+  $('#summary').innerHTML = [
+    ['全体の達成率', `${rate}%`, `OK ${counts.ok} / 対象 ${target}（保留 ${counts.hold} を除く）`, ''],
+    ['今回の変更の達成率', `${newRate}%`, `OK ${newOk} / ${newItems.length - newHold}`, ''],
+    ['未確認', counts.todo, '残り', ''],
+    ['OK', counts.ok, '', 'ok'],
+    ['NG', counts.ng, '直す必要あり', 'ng'],
+    ['保留', counts.hold, '環境が無いなど', 'hold'],
+  ].map(([l, n, sub, cls]) => `<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${l}</div>${sub ? `<div class="l">${sub}</div>` : ''}</div>`).join('');
+  const bar = (c, n) => `<span class="ok" style="width:${(c.ok / n) * 100}%"></span><span class="ng" style="width:${(c.ng / n) * 100}%"></span><span class="hold" style="width:${(c.hold / n) * 100}%"></span>`;
+  $('#totalBar').innerHTML = bar(counts, total);
+  $('#cats').innerHTML = CATEGORIES.map(([id, name]) => {
+    const list = ITEMS.filter((i) => i.cat === id);
+    const c = { todo: 0, ok: 0, ng: 0, hold: 0 };
+    for (const i of list) c[itemState(i.id).status]++;
+    const t = list.length - c.hold;
+    const r = t ? Math.round((c.ok / t) * 100) : 0;
+    return `<div class="cat" data-cat="${id}" title="クリックでこの分類だけ表示"><span>${esc(name)}</span><span class="r">${r}%（${c.ok}/${t}${c.ng ? `、NG ${c.ng}` : ''}）</span><div class="bar">${bar(c, list.length)}</div></div>`;
+  }).join('');
+}
+
+function renderRows() {
+  const list = filtered();
+  const grouped = $('#sort').value === 'id';
+  const rows = [];
+  let lastCat = null;
+  for (const it of list) {
+    const s = itemState(it.id);
+    const cat = catMap.get(it.cat);
+    if (grouped && it.cat !== lastCat) {
+      rows.push(`<tr class="group"><td colspan="5">${esc(cat.name)} <span class="desc">— ${esc(cat.desc)}</span></td></tr>`);
+      lastCat = it.cat;
+    }
+    rows.push(`<tr class="item ${s.status}" data-id="${it.id}">
+      <td class="id">${it.id}</td>
+      <td class="title">${esc(it.title)}<span class="tag ${it.tag}">${it.tag === 'new' ? '今回の変更' : '既存'}</span>${grouped ? '' : `<span class="tag">${esc(cat.name)}</span>`}
+        <div class="steps">${esc(it.steps)}</div>
+        <div class="expect">${esc(it.expect)}</div></td>
+      <td><span class="pri ${it.pri}">${PRI[it.pri]}</span></td>
+      <td class="status"><span class="seg" role="radiogroup" aria-label="${it.id} の状態">${Object.entries(STATUS).map(([k, l]) => `<button type="button" class="${k}${s.status === k ? ' on' : ''}" data-status="${k}" aria-pressed="${s.status === k}">${l}</button>`).join('')}</span></td>
+      <td class="note"><textarea placeholder="結果・生の値・気づいたこと" aria-label="${it.id} のメモ">${esc(s.note)}</textarea><div class="when">${s.updated ? `更新 ${fmtWhen(s.updated)}` : ''}</div></td>
+    </tr>`);
+  }
+  $('#rows').innerHTML = rows.join('');
+  $('#empty').classList.toggle('hidden', list.length > 0);
+  $('#count').textContent = `${list.length} / ${ITEMS.length} 件を表示`;
+}
+
+function render() { renderSummary(); renderRows(); }
+
+// ---- イベント ----
+function init() {
+  load();
+  const sel = $('#fCat');
+  for (const [id, name] of CATEGORIES) { const o = document.createElement('option'); o.value = id; o.textContent = name; sel.appendChild(o); }
+  // 画面の状態（フィルタなど）も覚えておく
+  const u = ui();
+  if (u.q) $('#q').value = u.q;
+  if (u.cat) $('#fCat').value = u.cat;
+  if (u.status) $('#fStatus').value = u.status;
+  if (u.pri) $('#fPri').value = u.pri;
+  if (u.onlyNew) $('#fNew').checked = true;
+  if (u.sort) $('#sort').value = u.sort;
+  if (u.theme) document.documentElement.dataset.theme = u.theme;
+  const remember = () => {
+    state.ui = { ...state.ui, q: $('#q').value, cat: $('#fCat').value, status: $('#fStatus').value, pri: $('#fPri').value, onlyNew: $('#fNew').checked, sort: $('#sort').value };
+    save();
+    renderRows();
+  };
+  for (const id of ['#q', '#fCat', '#fStatus', '#fPri', '#fNew', '#sort']) $(id).addEventListener('input', remember);
+  $('#cats').addEventListener('click', (e) => {
+    const el = e.target.closest('.cat');
+    if (!el) return;
+    $('#fCat').value = $('#fCat').value === el.dataset.cat ? '' : el.dataset.cat;
+    remember();
+  });
+  document.querySelectorAll('th.sortable').forEach((th) => th.addEventListener('click', () => { $('#sort').value = th.dataset.sort; remember(); }));
+  $('#rows').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-status]');
+    if (!b) return;
+    const id = b.closest('tr').dataset.id;
+    setItem(id, { status: b.dataset.status });
+    render();
+  });
+  let noteTimer;
+  $('#rows').addEventListener('input', (e) => {
+    const ta = e.target.closest('textarea');
+    if (!ta) return;
+    const id = ta.closest('tr').dataset.id;
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => { setItem(id, { note: ta.value }); renderSummary(); }, 300);
+  });
+  $('#rows').addEventListener('change', (e) => {
+    const ta = e.target.closest('textarea');
+    if (ta) { setItem(ta.closest('tr').dataset.id, { note: ta.value }); render(); }
+  });
+  $('#export').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify({ exported: new Date().toISOString(), items: state.items }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `xlcode-win-checklist-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+  $('#import').addEventListener('click', () => $('#importFile').click());
+  $('#importFile').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try {
+      const v = JSON.parse(await f.text());
+      if (!v.items || typeof v.items !== 'object') throw new Error('形式が違います');
+      if (confirm('今の状態に読み込んだ内容を上書きします。よろしいですか？')) { state.items = { ...state.items, ...v.items }; save(); render(); }
+    } catch (err) { alert(`読み込めません: ${err.message}`); }
+    e.target.value = '';
+  });
+  $('#theme').addEventListener('click', () => {
+    const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    const next = cur === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    state.ui = { ...state.ui, theme: next };
+    save();
+  });
+  $('#reset').addEventListener('click', () => {
+    if (confirm('すべての状態とメモを消します。よろしいですか？（「書き出し」で控えを取れます）')) { state.items = {}; save(); render(); }
+  });
+  render();
+}
+init();
+</script>
+</body>
+</html>

@@ -369,7 +369,7 @@ function Tree({
       ?.scrollIntoView({ block: 'nearest' });
   };
   const onKeyDown = (e: KeyboardEvent<HTMLUListElement>) => {
-    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.ctrlKey || e.altKey || e.metaKey || e.nativeEvent.isComposing) return;
     const row = rows[cur];
     switch (e.key) {
       case 'ArrowDown':

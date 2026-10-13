@@ -1741,7 +1741,7 @@ export function App() {
   }, [chord]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (palette || dialogOpen) return;
+      if (palette || dialogOpen || e.isComposing) return;
       const key = eventToKey(e, api.platform);
       if (!key) return;
       if (isTyping(e.target) && !allowedWhileTyping(key)) return;

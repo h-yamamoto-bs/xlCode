@@ -106,6 +106,8 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
+              // 日本語入力の変換中（Enter で確定など）はパレットの操作にしない
+              if (e.nativeEvent.isComposing) return;
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 setCursor((c) => Math.min(c + 1, shown.length - 1));
