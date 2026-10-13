@@ -675,9 +675,8 @@ describe('左右のサイドバー', () => {
     await win.getByRole('button', { name: 'プロジェクトを開く', exact: true }).first().waitFor();
   });
 
-  it('タブバーのボタンで左右を開閉し、右のパネルに指示・内容・履歴が出る', async () => {
+  it('タブバーのボタンで左右を開閉し、右のパネルで指示を組み立て、メモを書ける', async () => {
     const f = await project();
-    await f.editBook(APP_BOOK, (b) => b.writeLines('util.ts', ['export const one = 1;', 'export const two = 2;']));
     running = await launch(f.root);
     const { win } = running;
     await selectBook(win, APP_BOOK);
@@ -686,30 +685,86 @@ describe('左右のサイドバー', () => {
     await win.getByRole('button', { name: /^左のサイドバーを表示/ }).click();
     await win.getByRole('tree', { name: 'ブック', exact: true }).waitFor();
 
-    // 右のパネル: 指示のテンプレート
+    // 右のパネル: 指示。テンプレートを作成欄に足し、ファイルを選ぶと名前が埋まる
     await win.keyboard.press('Control+Alt+b');
     const right = win.getByRole('complementary', { name: '右のパネル' });
     await right.waitFor();
-    await right.getByText('ルールを読ませる').waitFor();
-    // ファイルを選ぶと、指示にファイル名が入り、「内容」でシートとファイルの中身が見える
     await win
       .getByRole('row', { name: /util\.ts/ })
       .first()
       .click();
-    await right.getByText('ファイル名は').waitFor();
-    await expect(right.getByText('util.ts', { exact: true }).first().isVisible()).resolves.toBe(true);
-    await right.getByRole('tab', { name: '内容' }).click();
-    const sheet = right.getByLabel('util.ts のExcel 側の内容');
-    await sheet.waitFor();
-    await expect(sheet.innerText()).resolves.toContain('export const two = 2;');
-    await right.getByRole('tab', { name: 'ソース側' }).click();
-    const src = right.getByLabel('util.ts のソース側の内容');
-    await expect(src.innerText()).resolves.not.toContain('export const two = 2;');
-    // 履歴: setup のコミットが出る
-    await right.getByRole('tab', { name: '履歴' }).click();
-    await right.getByText('setup', { exact: true }).waitFor();
+    await right.getByText('util.ts', { exact: true }).first().waitFor();
+    // 「編集」のグループは閉じているので開く
+    await right.getByRole('button', { name: /^編集/ }).click();
+    await right.getByRole('button', { name: 'ファイルを直す を作成欄に足す' }).click();
+    const box = right.getByLabel('指示の作成欄');
+    await expect(box.inputValue()).resolves.toContain('util.ts シートの内容を次のように変更してください');
+    // 開いているグループは 1 つだけなので「基本」を開き直す
+    await right.getByRole('button', { name: /^基本/ }).click();
+    await right.getByRole('button', { name: 'ルールを読ませる を作成欄に足す' }).click();
+    await expect(box.inputValue()).resolves.toMatch(/変更してください[\s\S]*Agents\.md シート/);
+    await right.getByRole('button', { name: 'クリア' }).click();
+    await expect(box.inputValue()).resolves.toBe('');
+
+    // メモ: 入力をやめると .xlcode/notes.md に保存される
+    await right.getByRole('tab', { name: 'メモ' }).click();
+    const memo = right.getByLabel('作業メモ');
+    await memo.waitFor();
+    await memo.fill('明日は api を直す');
+    await expect.poll(() => f.read('.xlcode/notes.md').catch(() => ''), { timeout: 5000 }).toBe('明日は api を直す');
     // 閉じる
     await right.getByRole('button', { name: /右のパネルを閉じる/ }).click();
     await expect(right.count()).resolves.toBe(0);
+  });
+
+  it('左のサイドバーに Git と OneDrive の状態が出る', async () => {
+    const f = await project();
+    running = await launch(f.root);
+    const { win } = running;
+    const side = win.getByRole('complementary').first();
+    await side.getByText('Git — main').click();
+    await side.getByText('setup', { exact: true }).waitFor();
+    await side.getByText('変更なし').waitFor();
+    await f.write('app/App.tsx', 'export const App = () => <p>dirty</p>;\n');
+    await win.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await side.getByText('未コミット 1').waitFor();
+    await side.getByText('未コミット 1').click();
+    await side.getByText('app/App.tsx', { exact: true }).waitFor();
+    await side.getByText('OneDrive の同期状態').click();
+    // Linux では Windows だけの機能である旨が出る
+    await side.getByText('Windows でだけ表示します', { exact: false }).waitFor();
+  });
+});
+
+describe('コードの閲覧', () => {
+  it('エクスプローラーのシートを押すと閲覧のタブで開き、Markdown は編集できる', async () => {
+    const f = await project();
+    await f.editBook(APP_BOOK, (b) => b.writeLines('util.ts', ['export const one = 1;', 'export const two = 2;']));
+    running = await launch(f.root);
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    await win.getByRole('treeitem', { name: 'util.ts', exact: true }).click();
+    const tabs = win.getByRole('tablist', { name: '開いているタブ' });
+    await tabs.getByRole('tab', { name: /util\.ts/ }).waitFor();
+    // 既定はソース側。Excel 側に切り替えると Copilot の変更が見える
+    const src = win.getByLabel('util.ts のソース側の内容');
+    await src.waitFor();
+    await expect(src.innerText()).resolves.toContain('export const one = 1;');
+    await expect(src.innerText()).resolves.not.toContain('two');
+    await win.getByRole('tab', { name: 'Excel 側' }).click();
+    await expect(win.getByLabel('util.ts のExcel 側の内容').innerText()).resolves.toContain('export const two = 2;');
+    // 編集はできず、既定のアプリ / VS Code / フォルダ のボタンがある
+    await expect(win.getByRole('button', { name: '既定のアプリで開く' }).isVisible()).resolves.toBe(true);
+    await expect(win.getByRole('button', { name: 'VS Code で開く' }).isVisible()).resolves.toBe(true);
+    await expect(win.getByRole('textbox', { name: 'util.ts' }).count()).resolves.toBe(0);
+    // ブック画面のファイル名からも開ける（閲覧はプレビューなので、ブックを選び直すと置き換わる）。
+    // Markdown（LocalAgents.md）は編集のタブ
+    await selectBook(win, APP_BOOK);
+    await tabs.getByRole('tab', { name: 'app.xlcode.xlsx' }).waitFor();
+    await win
+      .getByRole('row', { name: /LocalAgents\.md/ })
+      .getByRole('button', { name: 'LocalAgents.md', exact: true })
+      .click();
+    await win.getByRole('textbox', { name: 'app/LocalAgents.md' }).waitFor();
   });
 });

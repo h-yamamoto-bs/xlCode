@@ -225,8 +225,10 @@ const ITEMS = [
   { id: 'T-6', cat: 'tabs', pri: 'mid', tag: 'new', title: 'エクスプローラーの Agents.md / LocalAgents.md / .xlcodeignore', steps: 'それぞれ押す。無いファイル（薄い字）を開いて保存', expect: 'タブで開く。保存で作られ、薄い字が通常の表示になる。VS Code で同じファイルを直すと「ほかの場所で変更されました」が出る' },
   { id: 'T-7', cat: 'tabs', pri: 'low', tag: 'new', title: 'プロジェクトを切り替えてもタブは混ざらない', steps: 'A を開いてタブを作り、Ctrl+R で B を開き、再び A', expect: 'A のタブだけが戻る' },
   { id: 'T-8', cat: 'tabs', pri: 'mid', tag: 'new', title: '左右のサイドバーの開閉と幅', steps: 'タブバー右端のボタン・Ctrl+B・Ctrl+Alt+B で開閉。境目をドラッグ、ダブルクリック', expect: '開閉と幅が変わり、再起動後も同じ。ドラッグ中にウィンドウが動いたり文字が選択されたりしない' },
-  { id: 'T-9', cat: 'tabs', pri: 'mid', tag: 'new', title: '右のパネル「指示」のコピー', steps: '「コピー」→ Excel の Copilot の入力欄に Ctrl+V', expect: 'テンプレートの文がそのまま貼り付く。「コピーしました」が出る' },
-  { id: 'T-10', cat: 'tabs', pri: 'low', tag: 'new', title: '右のパネル「内容」「履歴」', steps: 'ファイル一覧の行を選ぶ。Build / Sync を 1 回行う', expect: 'Excel 側とソース側の内容が出て、Build / Sync 後に自動で読み直す。履歴に自動コミットが増える' },
+  { id: 'T-9', cat: 'tabs', pri: 'mid', tag: 'new', title: '右のパネル「指示」の作成欄とコピー', steps: 'テンプレートを足して書き足し「コピー」→ Excel の Copilot の入力欄に Ctrl+V。「テンプレートに保存」', expect: '作成欄の文がそのまま貼り付く（改行も）。保存したテンプレートが再起動後も残る' },
+  { id: 'T-10', cat: 'tabs', pri: 'low', tag: 'new', title: '右のパネル「メモ」', steps: '書いて 1 秒待つ → .xlcode\\notes.md をメモ帳で開く', expect: '自動で保存されている。IME の変換中に保存されて文字が切れない' },
+  { id: 'T-11', cat: 'tabs', pri: 'high', tag: 'new', title: 'コードの閲覧タブ「既定のアプリで開く」「VS Code で開く」', steps: 'エクスプローラーのシートを押す → それぞれのボタン', expect: '関連付けられたアプリ（メモ帳など）で開く。code コマンドがあれば VS Code で開き、無ければ案内のエラーが出力に出る' },
+  { id: 'T-12', cat: 'tabs', pri: 'mid', tag: 'new', title: '左の「OneDrive の同期状態」「Git」の区画', steps: '区画を開く。Build を 1 回行う', expect: 'ブックごとの同期状態が 10 秒ごとに変わる。Git に自動コミットが増え、未コミットの数が合う' },
   // デスクトップ版 Excel の検知
   { id: 'L-1', cat: 'lock', pri: 'high', tag: 'base', title: 'OneDrive 外のブックをデスクトップ版で開く', steps: '「デスクトップで開く」', expect: 'サイドバーに鍵、Build / Sync が押せない。フォルダに ~$ ファイルができる' },
   { id: 'L-2', cat: 'lock', pri: 'high', tag: 'base', title: 'Excel を閉じると自動で解除される', steps: 'L-1 の状態で閉じる', expect: '数秒以内に鍵が消え、出力に「Excel が閉じられました」' },

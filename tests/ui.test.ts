@@ -168,3 +168,29 @@ describe('右のパネル', () => {
     expect(PROMPT_GROUPS.flatMap((g) => g.items).some((i) => i.mode === 'vba')).toBe(true);
   });
 });
+
+describe('ファイルのタブ', () => {
+  it('ブックとファイル名の組を rel にして、元に戻せる', async () => {
+    const { fileRef, parseFileRef, openTab, EMPTY_TABS, deserializeTabs, serializeTabs } =
+      await import('../src/renderer/src/tabs');
+    const rel = fileRef('app/app.xlcode.xlsx', 'a.ts');
+    expect(parseFileRef(rel)).toEqual({ book: 'app/app.xlcode.xlsx', name: 'a.ts' });
+    expect(parseFileRef(fileRef('x.xlcode.xlsx', 'Module1.bas'))).toEqual({
+      book: 'x.xlcode.xlsx',
+      name: 'Module1.bas',
+    });
+    const s = openTab(EMPTY_TABS, 'file', rel);
+    expect(s.tabs[0].id).toBe(`file:${rel}`);
+    expect(deserializeTabs(JSON.parse(JSON.stringify(serializeTabs(s)))).tabs[0].kind).toBe('file');
+  });
+
+  it('ドキュメントの種類は場所と名前で決まる', async () => {
+    const { docKind } = await import('../src/renderer/src/docs');
+    expect(docKind('Agents.md')).toBe('agents');
+    expect(docKind('app/Agents.md')).toBe('markdown');
+    expect(docKind('app/LocalAgents.md')).toBe('local-agents');
+    expect(docKind('.xlcodeignore')).toBe('ignore');
+    expect(docKind('.xlcode/notes.md')).toBe('notes');
+    expect(docKind('docs/README.md')).toBe('markdown');
+  });
+});

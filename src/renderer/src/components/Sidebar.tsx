@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import type { CommitInfo } from '../../../core';
 import type { BookSummary, BookSync, ProjectInfo } from '../../../shared/api';
 import { buildDirTree, countItems, type DirNode } from '../dirTree';
 import { EXCEL_SIDE, SOURCE_SIDE, STATUS, SYNC_META } from '../status';
@@ -36,7 +37,10 @@ interface Row {
     | { type: 'emptydir'; label: string; path: string; canCreate: boolean };
 }
 
-export type OpenTarget = { kind: 'book' | 'doc'; rel: string };
+export type OpenTarget =
+  | { kind: 'book' | 'doc'; rel: string }
+  /** コードのファイル（シート）を閲覧する */
+  | { kind: 'file'; book: string; name: string };
 
 export function Sidebar({
   project,
@@ -51,7 +55,21 @@ export function Sidebar({
   onSettings,
   focusNonce = 0,
   vba = false,
+  oneDriveRunning = null,
+  onSyncDetails,
+  platform = 'win32',
+  commits = null,
+  onTerminal,
 }: {
+  /** OneDrive が起動しているか（Windows のみ。null は不明） */
+  oneDriveRunning?: boolean | null;
+  /** OneDrive の生の値を出力に出す */
+  onSyncDetails?: () => void;
+  platform?: string;
+  /** プロジェクト全体の最近のコミット（null は読み込み前） */
+  commits?: CommitInfo[] | null;
+  /** ルートでターミナルを開く */
+  onTerminal?: () => void;
   /** ブックの無いディレクトリすべてにブックを作る（ソースコードモード） */
   onCreateAll?: () => void;
   /** VBA モード（ブックは既存の Excel ツールから取り込むか、空で作る） */
@@ -72,6 +90,9 @@ export function Sidebar({
   focusNonce?: number;
 }) {
   const [openBooks, setOpenBooks] = useState(true);
+  const [openSync, setOpenSync] = useState(false);
+  const [openGit, setOpenGit] = useState(false);
+  const [showChanges, setShowChanges] = useState(false);
   // ブックが無いときは、作成先を選べるよう最初から開いておく
   const [openDirs, setOpenDirs] = useState(project.books.length === 0);
   // 開閉状態（キー: dir:パス / book:ブック / empty:パス）。未操作なら既定値
@@ -210,7 +231,11 @@ export function Sidebar({
         onOpen({ kind: 'book', rel: row.node.book.rel }, { preview });
         break;
       case 'sheet':
-        onOpen({ kind: 'book', rel: row.node.book.rel }, { preview });
+        // Markdown は編集、それ以外は閲覧
+        if (row.node.file.name.toLowerCase().endsWith('.md')) {
+          const dir = row.node.book.dirRel;
+          onOpen({ kind: 'doc', rel: dir ? `${dir}/${row.node.file.name}` : row.node.file.name }, { preview });
+        } else onOpen({ kind: 'file', book: row.node.book.rel, name: row.node.file.name }, { preview });
         break;
       case 'doc':
         onOpen({ kind: 'doc', rel: row.node.rel }, { preview });
@@ -318,6 +343,169 @@ export function Sidebar({
           }
         />
       </Section>
+      <Section
+        title="OneDrive の同期状態"
+        open={openSync}
+        onToggle={() => setOpenSync(!openSync)}
+        actions={
+          onSyncDetails && (
+            <IconButton title="生の値を出力に表示" onClick={onSyncDetails}>
+              <Icon.Info size={14} />
+            </IconButton>
+          )
+        }
+      >
+        <SyncSection project={project} sync={sync} oneDriveRunning={oneDriveRunning} platform={platform} />
+      </Section>
+      <Section
+        title={project.git.repo ? `Git — ${project.git.branch}` : 'Git'}
+        open={openGit}
+        onToggle={() => setOpenGit(!openGit)}
+        actions={
+          onTerminal && (
+            <IconButton title="ターミナルをプロジェクトのフォルダで開く" onClick={onTerminal}>
+              <Icon.Terminal size={14} />
+            </IconButton>
+          )
+        }
+      >
+        <GitSection
+          project={project}
+          commits={commits}
+          showChanges={showChanges}
+          onToggleChanges={() => setShowChanges((v) => !v)}
+        />
+      </Section>
+    </div>
+  );
+}
+
+/** ブックごとの OneDrive の同期状態 */
+function SyncSection({
+  project,
+  sync,
+  oneDriveRunning,
+  platform,
+}: {
+  project: ProjectInfo;
+  sync: Record<string, BookSync>;
+  oneDriveRunning: boolean | null;
+  platform: string;
+}) {
+  if (platform !== 'win32') {
+    return (
+      <div className="px-5 py-2 text-[12px] leading-relaxed text-muted">
+        OneDrive の同期状態は Windows でだけ表示します。
+      </div>
+    );
+  }
+  const rows = project.books.map((b) => ({ rel: b.rel, s: sync[b.rel] }));
+  return (
+    <div className="pb-1 text-[12px]">
+      <div className="flex items-center gap-1.5 px-5 py-1 text-muted">
+        <Icon.Cloud
+          size={13}
+          className={oneDriveRunning === false ? 'text-warn' : oneDriveRunning ? 'text-added' : 'text-faint'}
+        />
+        OneDrive:{' '}
+        {oneDriveRunning === null ? (
+          '確認していません'
+        ) : oneDriveRunning ? (
+          '起動中'
+        ) : (
+          <span className="text-warn">起動していません</span>
+        )}
+        {project.bookRoot === null && <span className="text-faint">（ブックはソースの中）</span>}
+      </div>
+      <ul>
+        {rows.map(({ rel, s }) => {
+          const meta = s ? SYNC_META[s.state] : null;
+          return (
+            <li key={rel} className="flex h-[22px] items-center gap-1.5 px-5" title={s?.detail ?? ''}>
+              <Icon.Book size={13} className="shrink-0 text-excel" />
+              <span className="min-w-0 flex-1 truncate text-fg">{rel.split('/').pop()}</span>
+              <span className={clsx('shrink-0', meta?.color ?? 'text-faint')}>
+                {meta ? meta.label || '—' : '取得中'}
+              </span>
+            </li>
+          );
+        })}
+        {rows.length === 0 && <li className="px-5 py-1 text-faint">ブックがありません</li>}
+      </ul>
+    </div>
+  );
+}
+
+/** Git のブランチ・未コミットの変更・最近のコミット */
+function GitSection({
+  project,
+  commits,
+  showChanges,
+  onToggleChanges,
+}: {
+  project: ProjectInfo;
+  commits: CommitInfo[] | null;
+  showChanges: boolean;
+  onToggleChanges: () => void;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+  if (!project.git.repo) {
+    return (
+      <div className="px-5 py-2 text-[12px] leading-relaxed text-muted">
+        Git で管理していません。Build / Sync 前の自動コミット（戻すための控え）が作られません。ターミナルで{' '}
+        <span className="font-mono">git init</span> すると使えます。
+      </div>
+    );
+  }
+  const changes = project.git.changes;
+  return (
+    <div className="pb-1 text-[12px]">
+      <button
+        className="flex h-[22px] w-full items-center gap-1.5 px-5 text-left hover:bg-hover"
+        onClick={onToggleChanges}
+        aria-expanded={showChanges}
+      >
+        {changes.length > 0 ? <Chevron open={showChanges} /> : <span className="w-4 shrink-0" />}
+        <Icon.Branch size={13} className="shrink-0 text-muted" />
+        <span className="text-fg">{project.git.branch}</span>
+        <span className={clsx('ml-auto', changes.length > 0 ? 'text-modified' : 'text-faint')}>
+          {changes.length > 0 ? `未コミット ${changes.length}` : '変更なし'}
+        </span>
+      </button>
+      {showChanges && changes.length > 0 && (
+        <ul className="max-h-[20vh] overflow-auto pb-1">
+          {changes.map((c) => (
+            <li key={c} className="truncate pr-3 pl-11 font-mono text-[11px] text-modified" title={c}>
+              {c}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="px-5 pt-1 text-[11px] tracking-wide text-muted uppercase">最近のコミット</div>
+      <ul className="max-h-[30vh] overflow-auto">
+        {commits === null && <li className="px-5 py-1 text-faint">読み込んでいます...</li>}
+        {commits?.length === 0 && <li className="px-5 py-1 text-faint">コミットがありません</li>}
+        {commits?.map((c) => (
+          <li key={c.hash} className="flex h-[22px] items-center gap-1.5 px-5" title={`${c.subject}\n${c.date}`}>
+            <button
+              className="shrink-0 font-mono text-[11px] text-link hover:underline"
+              title="ハッシュをコピー"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(c.hash);
+                  setCopied(c.hash);
+                  setTimeout(() => setCopied(null), 1500);
+                } catch {
+                  // コピーできない環境では何もしない
+                }
+              }}
+            >
+              {copied === c.hash ? 'コピー済' : c.hash}
+            </button>
+            <span className={clsx('min-w-0 flex-1 truncate', c.auto ? 'text-muted' : 'text-fg')}>{c.subject}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

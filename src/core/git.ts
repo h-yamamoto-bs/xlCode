@@ -111,11 +111,11 @@ export interface CommitInfo {
 }
 
 /** 対象ディレクトリ直下に関わる最近のコミット（右のパネルの「履歴」用）。Git でなければ空 */
-export async function recentCommits(root: string, dirRel: string, limit = 30): Promise<CommitInfo[]> {
+export async function recentCommits(root: string, dirRel: string | null, limit = 30): Promise<CommitInfo[]> {
   if (!(await isGitRepo(root))) return [];
-  const out = await git(root, ['log', `-n${limit}`, '--format=%h%x1f%cI%x1f%s', '--', ...dirPathspec(dirRel)]).catch(
-    () => '',
-  );
+  // dirRel が null ならプロジェクト全体
+  const spec = dirRel === null ? [] : ['--', ...dirPathspec(dirRel)];
+  const out = await git(root, ['log', `-n${limit}`, '--format=%h%x1f%cI%x1f%s', ...spec]).catch(() => '');
   return out
     .split('\n')
     .filter((l) => l.includes('\x1f'))

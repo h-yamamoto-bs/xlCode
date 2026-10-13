@@ -96,7 +96,10 @@ export interface IgnoreInfo {
 }
 
 /** xlCode で編集できるドキュメントの種類 */
-export type DocKind = 'agents' | 'local-agents' | 'ignore';
+export type DocKind = 'agents' | 'local-agents' | 'ignore' | 'notes' | 'markdown';
+
+/** ファイルを開くアプリ */
+export type OpenWith = 'default' | 'vscode';
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -117,8 +120,12 @@ export interface XlcodeApi {
   bookDiff(root: string, bookRel: string): Promise<Result<FileDiff[]>>;
   /** 1 ファイルの Excel 側とソース側の内容（右のパネルの「内容」用） */
   fileContents(root: string, bookRel: string, name: string): Promise<Result<FileContents>>;
-  /** ブックのフォルダに関わる最近のコミット（右のパネルの「履歴」用） */
-  recentCommits(root: string, dirRel: string): Promise<Result<CommitInfo[]>>;
+  /** 最近のコミット（dirRel が null ならプロジェクト全体。サイドバーの「Git」用） */
+  recentCommits(root: string, dirRel: string | null): Promise<Result<CommitInfo[]>>;
+  /** ソースファイルを既定のアプリ（または VS Code）で開く */
+  openFile(root: string, rel: string, app: OpenWith): Promise<Result<void>>;
+  /** ソースファイルをエクスプローラーで表示する */
+  revealFile(root: string, rel: string): Promise<Result<void>>;
   /** 直前の Build / Sync を元に戻す */
   undoLast(root: string, bookRel: string): Promise<Result<UndoResult>>;
   /** 各ブックがデスクトップ版 Excel で開かれているか（ポーリング用） */
@@ -134,7 +141,7 @@ export interface XlcodeApi {
   pickFolder(title: string): Promise<string | null>;
   /** ブックの置き場所を変え、既存のブックを移動する（null ならソースの中へ戻す。opts.move が false なら設定だけ変える） */
   relocateBooks(root: string, newRoot: string | null, opts?: RelocateOptions): Promise<Result<RelocateResult>>;
-  /** Agents.md / LocalAgents.md / .xlcodeignore のみ読み書きできる（無ければ null） */
+  /** Markdown（*.md）・.xlcodeignore・.xlcode/notes.md のみ読み書きできる（無ければ null） */
   readDoc(root: string, rel: string): Promise<Result<string | null>>;
   writeDoc(root: string, rel: string, text: string): Promise<Result<void>>;
   /** プロジェクトの種類を決める（一度決めたら変えられない） */

@@ -6,13 +6,13 @@
  * 状態は純粋な関数で更新する（テストしやすく、画面はこの結果を描くだけ）
  */
 
-export type TabKind = 'book' | 'doc' | 'settings' | 'help';
+export type TabKind = 'book' | 'doc' | 'file' | 'settings' | 'help';
 
 export interface Tab {
   /** kind:rel（settings / help は kind だけ） */
   id: string;
   kind: TabKind;
-  /** book: ブックの相対パス、doc: ドキュメントの相対パス */
+  /** book: ブックの相対パス、doc: ドキュメントの相対パス、file: 「ブックの相対パス|ファイル名」（fileRef で作る） */
   rel?: string;
   preview: boolean;
 }
@@ -145,9 +145,23 @@ export function deserializeTabs(v: unknown): TabsState {
           typeof t === 'object' &&
           t !== null &&
           typeof (t as Tab).id === 'string' &&
-          ['book', 'doc', 'settings', 'help'].includes((t as Tab).kind),
+          ['book', 'doc', 'file', 'settings', 'help'].includes((t as Tab).kind),
       )
     : [];
   const active = typeof o.active === 'string' && tabs.some((t) => t.id === o.active) ? o.active : (tabs[0]?.id ?? null);
   return { tabs: tabs.map((t) => ({ ...t, preview: !!t.preview })), active, closed: [] };
+}
+
+/** file タブの rel（ブックとファイル名の組） */
+export function fileRef(bookRel: string, name: string): string {
+  return `${bookRel}|${name}`;
+}
+
+export function parseFileRef(rel: string): { book: string; name: string } {
+  // ブックの相対パスは必ず .xlcode.xlsx で終わる（| はファイル名にもパスにも使えない）
+  const marker = '.xlcode.xlsx|';
+  const i = rel.indexOf(marker);
+  return i < 0
+    ? { book: rel, name: '' }
+    : { book: rel.slice(0, i + marker.length - 1), name: rel.slice(i + marker.length) };
 }

@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import {
   AGENTS_SHEET,
   IGNORE_FILE,
   LOCAL_AGENTS_SHEET,
+  NOTES_FILE,
+  XLCODE_DIR,
   bookDiff,
   bookStatus,
   fileContents,
@@ -42,7 +44,7 @@ import {
 import { atomicWrite } from '../core/atomic';
 import { excelPathError, toPosixRel } from '../core/fsutil';
 import { exists } from '../core/project';
-import type { BookSummary, OpenVia, ProjectInfo, Result } from '../shared/api';
+import type { BookSummary, OpenVia, OpenWith, ProjectInfo, Result } from '../shared/api';
 import {
   findRoot,
   isPersonalUrl,
@@ -205,13 +207,46 @@ async function openInWeb(root: string, abs: string): Promise<string | null> {
   );
 }
 
-/** 画面から編集できるドキュメント。Agents.md と .xlcodeignore はルートだけ、LocalAgents.md は各フォルダ */
+/**
+ * 画面から編集できるドキュメント。Markdown（*.md）はどこでも、.xlcodeignore はルートだけ、
+ * メモ（.xlcode/notes.md）はツール用フォルダの中。コードは画面では編集しない（既定のアプリで開く）
+ */
 function docFile(root: string, rel: string): string {
   const base = path.posix.basename(rel);
   const atRoot = !rel.includes('/');
-  const ok = base === LOCAL_AGENTS_SHEET || ((base === AGENTS_SHEET || base === IGNORE_FILE) && atRoot);
+  const ok =
+    base.toLowerCase().endsWith('.md') || (base === IGNORE_FILE && atRoot) || rel === `${XLCODE_DIR}/${NOTES_FILE}`;
   if (!ok) throw new Error(`編集できないファイルです: ${rel}`);
   return inside(root, rel);
+}
+
+/** ソースファイルを既定のアプリか VS Code で開く */
+async function openWithApp(abs: string, app: OpenWith): Promise<void> {
+  if (app === 'default') {
+    const err = await shell.openPath(abs);
+    if (err) throw new Error(err);
+    return;
+  }
+  // VS Code: PATH の code コマンド（Windows では code.cmd）
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn('code', [abs], {
+      detached: true,
+      stdio: 'ignore',
+      shell: process.platform === 'win32',
+      windowsHide: true,
+    });
+    child.on('error', (e) =>
+      reject(
+        new Error(
+          `VS Code を起動できませんでした（${e.message}）。VS Code の「シェル コマンド: PATH 内に 'code' コマンドをインストール」を実行するか、既定のアプリで開いてください`,
+        ),
+      ),
+    );
+    child.on('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
 }
 
 export function registerIpc(): void {
@@ -300,8 +335,14 @@ export function registerIpc(): void {
   ipcMain.handle('fileContents', (_e, root: string, book: string, name: string) =>
     wrap(async () => fileContents(root, await bookAbsOf(root, book), name)),
   );
-  ipcMain.handle('recentCommits', (_e, root: string, dirRel: string) =>
-    wrap(() => recentCommits(root, toPosixRel(root, inside(root, dirRel)))),
+  ipcMain.handle('recentCommits', (_e, root: string, dirRel: string | null) =>
+    wrap(() => recentCommits(root, dirRel === null ? null : toPosixRel(root, inside(root, dirRel)))),
+  );
+  ipcMain.handle('openFile', (_e, root: string, rel: string, app: OpenWith) =>
+    wrap(() => openWithApp(inside(root, rel), app)),
+  );
+  ipcMain.handle('revealFile', (_e, root: string, rel: string) =>
+    wrap(async () => shell.showItemInFolder(inside(root, rel))),
   );
   ipcMain.handle('undoLast', (_e, root: string, book: string) =>
     wrap(async () => undoLast(root, bookRef(root, await bookAbsOf(root, book), await bookRootFor(root)))),
@@ -362,6 +403,10 @@ export function registerIpc(): void {
     ),
   );
   ipcMain.handle('writeDoc', (_e, root: string, rel: string, text: string) =>
-    wrap(() => atomicWrite(docFile(root, rel), text)),
+    wrap(async () => {
+      const abs = docFile(root, rel);
+      await mkdir(path.dirname(abs), { recursive: true });
+      await atomicWrite(abs, text);
+    }),
   );
 }

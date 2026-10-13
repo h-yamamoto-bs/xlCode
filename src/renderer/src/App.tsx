@@ -1,18 +1,20 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Confirmation, OpResult, ProjectMode } from '../../core';
-import type { BookSummary, ExcelMode, OpenVia, ProjectInfo, SyncReport } from '../../shared/api';
+import type { CommitInfo, Confirmation, OpResult, ProjectMode } from '../../core';
+import type { BookSummary, ExcelMode, OpenVia, OpenWith, ProjectInfo, SyncReport } from '../../shared/api';
 import { api, storageGet, storageSet, unwrap } from './api';
 import { chordPrefixes, commandLabel, findCommand, type Command } from './commands';
 import { ACTION_LABEL, BookView, type LastResult } from './components/BookView';
 import { useDialog } from './components/Dialogs';
-import { DocEditor, docKind, type Draft } from './components/DocEditor';
+import { DocEditor, type Draft } from './components/DocEditor';
+import { docKind } from './docs';
 import { HelpView } from './components/HelpView';
 import { Icon } from './components/Icons';
 import { EmptySidebar } from './components/EmptySidebar';
+import { FileView } from './components/FileView';
 import { Palette, type PaletteItem, type PaletteSpec } from './components/Palette';
 import { Resizer } from './components/Resizer';
-import { SECONDARY_TABS, SecondarySidebar, type SecondaryTab } from './components/SecondarySidebar';
+import { NOTES_REL, SECONDARY_TABS, SecondarySidebar, type SecondaryTab } from './components/SecondarySidebar';
 import { Panel, type LogEntry, type Problem } from './components/Panel';
 import { EXCEL_MODES, SettingsView, type RelocateMode } from './components/SettingsView';
 import { Sidebar, type OpenTarget } from './components/Sidebar';
@@ -32,7 +34,9 @@ import {
   cycleTab,
   deserializeTabs,
   EMPTY_TABS,
+  fileRef,
   moveTab,
+  parseFileRef,
   openTab,
   pinTab,
   pruneTabs,
@@ -90,7 +94,8 @@ export function App() {
   const setTabs = useCallback((fn: (s: TabsState) => TabsState) => setTabsState((s) => fn(s)), []);
   const active = activeTab(tabs);
   /** 表示中のブック（Build / Sync などのショートカットの対象） */
-  const selected = active?.kind === 'book' ? (active.rel ?? null) : null;
+  const selected =
+    active?.kind === 'book' ? (active.rel ?? null) : active?.kind === 'file' ? parseFileRef(active.rel!).book : null;
   const open = useCallback(
     (kind: Tab['kind'], rel?: string, opts: { preview?: boolean } = {}) =>
       setTabs((s) => openTab(s, kind, rel, { preview: opts.preview ?? false })),
@@ -213,6 +218,10 @@ export function App() {
       setTabs((s) =>
         pruneTabs(s, (t) => {
           if (t.kind === 'book') return p.books.some((b) => b.rel === t.rel);
+          if (t.kind === 'file') {
+            const { book, name } = parseFileRef(t.rel ?? '');
+            return p.books.some((b) => b.rel === book && (b.files ?? []).some((f) => f.name === name));
+          }
           if (t.kind === 'doc') {
             const rel = t.rel ?? '';
             if (!rel.includes('/')) return true;
@@ -1349,9 +1358,56 @@ export function App() {
   );
 
   const onOpenTarget = useCallback(
-    (target: OpenTarget, opts: { preview: boolean }) => open(target.kind, target.rel, { preview: opts.preview }),
+    (target: OpenTarget, opts: { preview: boolean }) => {
+      if (target.kind === 'file') {
+        setSelectedFiles((m) => ({ ...m, [target.book]: target.name }));
+        open('file', fileRef(target.book, target.name), { preview: opts.preview });
+      } else open(target.kind, target.rel, { preview: opts.preview });
+    },
     [open],
   );
+
+  /** ブック画面の一覧からファイルを開く（Markdown は編集、それ以外は閲覧） */
+  const openFileOf = useCallback(
+    (b: BookSummary, name: string) => {
+      if (name.toLowerCase().endsWith('.md')) open('doc', b.dirRel ? `${b.dirRel}/${name}` : name);
+      else open('file', fileRef(b.rel, name));
+    },
+    [open],
+  );
+
+  /** ソースファイルを既定のアプリ / VS Code で開く、またはフォルダで表示する */
+  const openWithApp = useCallback(
+    (b: BookSummary, name: string, app: OpenWith | 'reveal') => {
+      const rel = b.dirRel ? `${b.dirRel}/${name}` : name;
+      const p = app === 'reveal' ? api.revealFile(root!, rel) : api.openFile(root!, rel, app);
+      void unwrap(p)
+        .then(() =>
+          log(
+            'info',
+            `${app === 'reveal' ? 'フォルダで表示' : app === 'vscode' ? 'VS Code で開きました' : '既定のアプリで開きました'}: ${rel}`,
+          ),
+        )
+        .catch((e: Error) => log('error', e.message));
+    },
+    [root, log],
+  );
+
+  // プロジェクト全体の最近のコミット（サイドバーの「Git」）。状態を読み直すたびに取り直す
+  const [commits, setCommits] = useState<CommitInfo[] | null>(null);
+  useEffect(() => {
+    if (!project) {
+      setCommits(null);
+      return;
+    }
+    let stale = false;
+    api.recentCommits(project.root, null).then((r) => {
+      if (!stale) setCommits(r.ok ? r.value : []);
+    });
+    return () => {
+      stale = true;
+    };
+  }, [project]);
 
   // ---- コマンド（ショートカット・コマンドパレット） ----
 
@@ -1566,6 +1622,27 @@ export function App() {
         run: () => open('doc', localAgentsOf(book!.dirRel)),
       },
       {
+        id: 'notes',
+        category: 'ドキュメント',
+        title: '作業メモを開く（.xlcode/notes.md）',
+        when: hasProject,
+        run: () => showRightTab('notes'),
+      },
+      {
+        id: 'open-default',
+        category: 'ファイル',
+        title: '既定のアプリで開く（閲覧中のファイル）',
+        when: !!book && active?.kind === 'file',
+        run: () => openWithApp(book!, parseFileRef(active!.rel!).name, 'default'),
+      },
+      {
+        id: 'open-vscode',
+        category: 'ファイル',
+        title: 'VS Code で開く（閲覧中のファイル）',
+        when: !!book && active?.kind === 'file',
+        run: () => openWithApp(book!, parseFileRef(active!.rel!).name, 'vscode'),
+      },
+      {
         id: 'ignore',
         category: 'ドキュメント',
         title: '.xlcodeignore を開く（ブックにしないファイル）',
@@ -1765,6 +1842,7 @@ export function App() {
     setSidebarOpen,
     setRightOpen,
     showRightTab,
+    openWithApp,
   ]);
   const commandsRef = useRef(commands);
   commandsRef.current = commands;
@@ -1836,14 +1914,21 @@ export function App() {
         ? t.rel!.split('/').pop()!
         : t.kind === 'doc'
           ? t.rel!.split('/').pop()!
-          : t.kind === 'settings'
-            ? '設定'
-            : 'ヘルプ';
+          : t.kind === 'file'
+            ? parseFileRef(t.rel!).name
+            : t.kind === 'settings'
+              ? '設定'
+              : 'ヘルプ';
     const counts = new Map<string, number>();
     for (const t of tabs.tabs) counts.set(labelOf(t), (counts.get(labelOf(t)) ?? 0) + 1);
     return tabs.tabs.map((t) => {
       const label = labelOf(t);
-      const dir = t.rel?.includes('/') ? t.rel.slice(0, t.rel.lastIndexOf('/')) : '';
+      const dir =
+        t.kind === 'file'
+          ? parseFileRef(t.rel!).book.split('/').slice(0, -1).join('/')
+          : t.rel?.includes('/')
+            ? t.rel.slice(0, t.rel.lastIndexOf('/'))
+            : '';
       const dup = (counts.get(label) ?? 0) > 1;
       const icon =
         t.kind === 'book' ? (
@@ -1854,6 +1939,8 @@ export function App() {
           ) : (
             <Icon.Rules size={14} className="text-info" />
           )
+        ) : t.kind === 'file' ? (
+          <Icon.File size={14} className="text-muted" />
         ) : t.kind === 'settings' ? (
           <Icon.Gear size={14} />
         ) : (
@@ -1862,10 +1949,10 @@ export function App() {
       return {
         tab: t,
         label,
-        detail: t.kind === 'doc' && label === 'LocalAgents.md' ? dir || '.' : dup ? dir || '.' : undefined,
+        detail: (t.kind === 'doc' && label === 'LocalAgents.md') || t.kind === 'file' || dup ? dir || '.' : undefined,
         icon,
         dirty: t.kind === 'doc' && !!drafts[t.rel!],
-        title: t.rel,
+        title: t.kind === 'file' ? `${dir ? `${dir}/` : ''}${label}（閲覧）` : t.rel,
       };
     });
   }, [tabs.tabs, drafts]);
@@ -1969,6 +2056,13 @@ export function App() {
                   onSettings={() => openSettings('bookRoot')}
                   focusNonce={explorerFocus}
                   vba={project.mode === 'vba' && project.modeSet}
+                  oneDriveRunning={syncReport?.oneDriveRunning ?? null}
+                  onSyncDetails={logSyncDiagnostics}
+                  platform={api.platform}
+                  commits={commits}
+                  onTerminal={() =>
+                    void unwrap(api.openTerminal(project.root, '')).catch((e: Error) => log('error', e.message))
+                  }
                 />
               ) : (
                 <EmptySidebar
@@ -2054,6 +2148,22 @@ export function App() {
                 onHelp={openHelp}
                 focus={settingsFocus}
               />
+            ) : active?.kind === 'file' ? (
+              book ? (
+                <FileView
+                  key={active.rel}
+                  root={project.root}
+                  book={book}
+                  name={parseFileRef(active.rel!).name}
+                  onOpenWith={(app) => openWithApp(book, parseFileRef(active.rel!).name, app)}
+                  onReveal={() => openWithApp(book, parseFileRef(active.rel!).name, 'reveal')}
+                  onSelectForPrompt={() =>
+                    setSelectedFiles((m) => ({ ...m, [book.rel]: parseFileRef(active.rel!).name }))
+                  }
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-muted">ブックがありません</div>
+              )
             ) : active?.kind === 'doc' ? (
               <DocEditor
                 key={active.rel}
@@ -2104,6 +2214,7 @@ export function App() {
                 onOpenDoc={(rel) => open('doc', rel)}
                 platform={api.platform}
                 selectedFile={selectedFiles[book.rel] ?? null}
+                onOpenFile={(name) => openFileOf(book, name)}
                 onSelectFile={(name) =>
                   setSelectedFiles((m) => {
                     const next = { ...m };
@@ -2175,6 +2286,7 @@ export function App() {
                 projectMode={project?.mode ?? 'source'}
                 selectedFile={book ? (selectedFiles[book.rel] ?? null) : null}
                 onLog={log}
+                onOpenNotesTab={() => open('doc', NOTES_REL)}
               />
             </aside>
           </>

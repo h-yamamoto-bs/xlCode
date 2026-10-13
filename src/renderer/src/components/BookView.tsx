@@ -196,7 +196,10 @@ export function BookView({
   platform = 'win32',
   selectedFile = null,
   onSelectFile,
+  onOpenFile,
 }: {
+  /** ファイルの内容を閲覧（Markdown は編集）のタブで開く */
+  onOpenFile?: (name: string) => void;
   root: string;
   /** 一覧で選んでいるファイル（右のパネルの「内容」「指示」が使う） */
   selectedFile?: string | null;
@@ -621,7 +624,23 @@ export function BookView({
                       <td className={clsx('px-3 text-center font-mono text-[12px]', m.color)} title={m.label}>
                         {m.letter || <Icon.Check size={12} className="inline text-faint" />}
                       </td>
-                      <td className="selectable px-2 font-mono text-[12.5px] text-fg">{f.name}</td>
+                      <td className="px-2 font-mono text-[12.5px] text-fg">
+                        <button
+                          className="hover:text-link hover:underline"
+                          title={
+                            f.name.toLowerCase().endsWith('.md')
+                              ? `${f.name} を編集する（Markdown）`
+                              : `${f.name} の内容を見る（Excel 側 / ソース側）`
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectFile?.(f.name);
+                            onOpenFile?.(f.name);
+                          }}
+                        >
+                          {f.name}
+                        </button>
+                      </td>
                       <td className={clsx('px-2 text-[12px]', m.color)}>{m.label}</td>
                       <td className="px-2 text-[12px] whitespace-nowrap text-faint">{f.format}</td>
                       <td className="px-3 text-[12px] text-muted">{m.hint}</td>

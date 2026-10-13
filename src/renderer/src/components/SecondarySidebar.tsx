@@ -1,24 +1,26 @@
 import clsx from 'clsx';
-import { useEffect, useState } from 'react';
-import type { CommitInfo, FileContents, ProjectMode } from '../../../core';
+import { useEffect, useRef, useState } from 'react';
+import type { ProjectMode } from '../../../core';
 import type { BookSummary } from '../../../shared/api';
-import { api } from '../api';
-import { fillPrompt, PROMPT_GROUPS } from '../prompts';
-import { STATUS } from '../status';
+import { api, storageGet, storageSet } from '../api';
+import { fillPrompt, PROMPT_GROUPS, type PromptTemplate } from '../prompts';
 import { Icon } from './Icons';
-import { IconButton } from './ui';
+import { Button, IconButton } from './ui';
 
-export type SecondaryTab = 'prompts' | 'contents' | 'history';
+export type SecondaryTab = 'prompts' | 'notes';
 
 export const SECONDARY_TABS: { id: SecondaryTab; label: string; title: string }[] = [
-  { id: 'prompts', label: '指示', title: 'Excel の Copilot に貼り付ける指示のテンプレート' },
-  { id: 'contents', label: '内容', title: '選んでいるファイルの Excel 側・ソース側の内容' },
-  { id: 'history', label: '履歴', title: 'このブックのフォルダに関わる Git のコミット' },
+  { id: 'prompts', label: '指示', title: 'Excel の Copilot に貼り付ける指示を組み立てる' },
+  { id: 'notes', label: 'メモ', title: 'このプロジェクトの作業メモ（.xlcode/notes.md）' },
 ];
+
+/** メモの置き場所（ツール用フォルダ。PC ごと） */
+export const NOTES_REL = '.xlcode/notes.md';
 
 /**
  * 右のサイドバー（VS Code のセカンダリサイドバー）。
- * ブック画面の作業中に、横に置いておくと便利なものを出す
+ * 指示: 作成欄にテンプレートを足して書き足し、コピーする。自分のテンプレートも保存できる
+ * メモ: プロジェクトごとの作業メモ
  */
 export function SecondarySidebar({
   tab,
@@ -29,6 +31,7 @@ export function SecondarySidebar({
   projectMode,
   selectedFile,
   onLog,
+  onOpenNotesTab,
 }: {
   tab: SecondaryTab;
   onTab: (t: SecondaryTab) => void;
@@ -37,9 +40,11 @@ export function SecondarySidebar({
   /** 表示中のブック（無ければ null） */
   book: BookSummary | null;
   projectMode: ProjectMode;
-  /** ブック画面で選んでいるファイル */
+  /** ブック画面や閲覧で選んでいるファイル */
   selectedFile: string | null;
-  onLog: (level: 'info' | 'error', text: string) => void;
+  onLog: (level: 'info' | 'error' | 'success', text: string) => void;
+  /** メモを大きなタブで開く */
+  onOpenNotesTab: () => void;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-side">
@@ -67,10 +72,9 @@ export function SecondarySidebar({
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         {tab === 'prompts' && (
-          <PromptPanel book={book} projectMode={projectMode} selectedFile={selectedFile} onLog={onLog} />
+          <PromptPanel root={root} book={book} projectMode={projectMode} selectedFile={selectedFile} onLog={onLog} />
         )}
-        {tab === 'contents' && <ContentsPanel root={root} book={book} selectedFile={selectedFile} />}
-        {tab === 'history' && <HistoryPanel root={root} book={book} />}
+        {tab === 'notes' && <NotesPanel root={root} onLog={onLog} onOpenTab={onOpenNotesTab} />}
       </div>
     </div>
   );
@@ -81,257 +85,247 @@ async function copyText(text: string): Promise<boolean> {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    // クリップボードが使えない環境では、選択して Ctrl+C してもらう
     return false;
   }
 }
 
+/** 自分のテンプレート（プロジェクトごと。この PC に保存） */
+interface CustomPrompt {
+  id: string;
+  title: string;
+  text: string;
+}
+
+interface PromptState {
+  draft: string;
+  custom: CustomPrompt[];
+}
+
+function promptKey(root: string | null): string {
+  return `prompts:${root ?? ''}`;
+}
+
 function PromptPanel({
+  root,
   book,
   projectMode,
   selectedFile,
   onLog,
 }: {
+  root: string | null;
   book: BookSummary | null;
   projectMode: ProjectMode;
   selectedFile: string | null;
-  onLog: (level: 'info' | 'error', text: string) => void;
+  onLog: (level: 'info' | 'error' | 'success', text: string) => void;
 }) {
-  const [copied, setCopied] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [state, setState] = useState<PromptState>(() => storageGet(promptKey(root), { draft: '', custom: [] }));
+  useEffect(() => setState(storageGet(promptKey(root), { draft: '', custom: [] })), [root]);
+  useEffect(() => storageSet(promptKey(root), state), [state, root]);
+  const [copied, setCopied] = useState(false);
+  const [openGroup, setOpenGroup] = useState<string | null>(PROMPT_GROUPS[0].title);
+  const area = useRef<HTMLTextAreaElement>(null);
   const ctx = { file: selectedFile ?? undefined, conflict: book?.conflictSheets?.[0] };
   useEffect(() => {
     if (!copied) return;
-    const t = setTimeout(() => setCopied(null), 1500);
+    const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
   }, [copied]);
-  return (
-    <div className="px-3 py-2 text-[12px]">
-      <p className="mb-2 leading-relaxed text-muted">
-        Excel の Copilot に貼り付ける指示の例です。「コピー」で写し、必要なところを書き足して使います。
-        {selectedFile ? (
-          <>
-            {' '}
-            ファイル名は <span className="font-mono text-fg">{selectedFile}</span> で埋めています。
-          </>
-        ) : (
-          ' ブック画面でファイルの行を選ぶと、ファイル名を埋めます。'
-        )}
-      </p>
-      {PROMPT_GROUPS.map((g) => {
-        const items = g.items.filter((it) => !it.mode || it.mode === projectMode);
-        if (items.length === 0) return null;
-        return (
-          <section key={g.title} className="mb-3">
-            <div className="mb-1 text-[11px] tracking-wide text-muted uppercase">{g.title}</div>
-            <ul className="flex flex-col gap-1">
-              {items.map((it) => {
-                const text = fillPrompt(it.text, ctx);
-                const open = openId === it.id;
-                return (
-                  <li key={it.id} className="rounded-[3px] border border-line bg-editor">
-                    <div className="flex items-center gap-1 px-2 py-1">
-                      <button
-                        className="min-w-0 flex-1 text-left"
-                        onClick={() => setOpenId(open ? null : it.id)}
-                        title={it.when}
-                        aria-expanded={open}
-                      >
-                        <span className="text-fg-strong">{it.title}</span>
-                        <span className="block truncate text-[11px] text-faint">{it.when}</span>
-                      </button>
-                      <button
-                        className={clsx(
-                          'shrink-0 rounded-[3px] border border-line px-2 py-0.5 text-[11px] hover:bg-hover',
-                          copied === it.id ? 'text-added' : 'text-fg',
-                        )}
-                        onClick={async () => {
-                          if (await copyText(text)) {
-                            setCopied(it.id);
-                            onLog('info', `指示をコピーしました: ${it.title}`);
-                          } else {
-                            setOpenId(it.id);
-                            onLog('error', 'クリップボードに書き込めませんでした。本文を選択してコピーしてください');
-                          }
-                        }}
-                        aria-label={`${it.title} をコピー`}
-                      >
-                        {copied === it.id ? 'コピーしました' : 'コピー'}
-                      </button>
-                    </div>
-                    {open && (
-                      <div className="selectable border-t border-line px-2 py-1.5 leading-relaxed whitespace-pre-wrap text-fg">
-                        {text}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        );
-      })}
-    </div>
-  );
-}
 
-function ContentsPanel({
-  root,
-  book,
-  selectedFile,
-}: {
-  root: string | null;
-  book: BookSummary | null;
-  selectedFile: string | null;
-}) {
-  const [side, setSide] = useState<'sheet' | 'source'>('sheet');
-  const [data, setData] = useState<FileContents | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const statusKey = JSON.stringify((book?.files ?? []).map((f) => [f.name, f.status]));
-  useEffect(() => {
-    setData(null);
-    setError(null);
-    if (!root || !book || !selectedFile) return;
-    let stale = false;
-    setLoading(true);
-    api.fileContents(root, book.rel, selectedFile).then((r) => {
-      if (stale) return;
-      setLoading(false);
-      if (r.ok) setData(r.value);
-      else setError(r.error);
+  const setDraft = (draft: string) => setState((s) => ({ ...s, draft }));
+  /** テンプレートを作成欄の末尾に足す（空なら置く） */
+  const append = (text: string) => {
+    setState((s) => ({ ...s, draft: s.draft.trim() ? `${s.draft.replace(/\s+$/, '')}\n\n${text}` : text }));
+    requestAnimationFrame(() => {
+      area.current?.focus();
+      area.current?.setSelectionRange(area.current.value.length, area.current.value.length);
     });
-    return () => {
-      stale = true;
-    };
-    // statusKey: Build / Sync で中身が変わったら読み直す
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root, book?.rel, selectedFile, statusKey]);
+  };
+  const copyDraft = async () => {
+    if (!state.draft.trim()) return;
+    if (await copyText(state.draft)) {
+      setCopied(true);
+      onLog('info', '指示をコピーしました。Excel の Copilot に貼り付けてください');
+    } else {
+      area.current?.select();
+      onLog('error', 'クリップボードに書き込めませんでした。作成欄を選択してコピーしてください');
+    }
+  };
+  const saveCustom = () => {
+    const text = state.draft.trim();
+    if (!text) return;
+    const title = window.prompt('テンプレートの名前', text.split('\n')[0].slice(0, 30));
+    if (!title) return;
+    setState((s) => ({ ...s, custom: [...s.custom, { id: `${Date.now()}`, title, text }] }));
+    onLog('success', `テンプレートに保存しました: ${title}`);
+  };
+  const removeCustom = (id: string) => setState((s) => ({ ...s, custom: s.custom.filter((c) => c.id !== id) }));
 
-  if (!book) return <Hint>ブックのタブを表示すると、選んだファイルの内容が出ます。</Hint>;
-  if (!selectedFile)
-    return <Hint>ブック画面のファイル一覧で行を選ぶと、Excel 側とソース側の内容をそのまま表示します。</Hint>;
-  const status = book.files?.find((f) => f.name === selectedFile)?.status;
-  const lines = side === 'sheet' ? data?.sheet : data?.source;
+  const Template = ({ it, onRemove }: { it: PromptTemplate | CustomPrompt; onRemove?: () => void }) => (
+    <li className="flex items-center gap-1 rounded-[3px] border border-line bg-editor px-2 py-1">
+      <button
+        className="min-w-0 flex-1 text-left"
+        title={`${'when' in it ? it.when + '\n\n' : ''}${fillPrompt(it.text, ctx)}`}
+        onClick={() => append(fillPrompt(it.text, ctx))}
+        aria-label={`${it.title} を作成欄に足す`}
+      >
+        <span className="text-fg-strong">{it.title}</span>
+        {'when' in it && <span className="block truncate text-[11px] text-faint">{it.when}</span>}
+      </button>
+      <IconButton title="作成欄に足す" onClick={() => append(fillPrompt(it.text, ctx))}>
+        <Icon.Plus size={13} />
+      </IconButton>
+      {onRemove && (
+        <IconButton title="このテンプレートを削除" onClick={onRemove}>
+          <Icon.Close size={13} />
+        </IconButton>
+      )}
+    </li>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-1.5">
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-strong" title={selectedFile}>
-          {selectedFile}
-        </span>
-        {status && <span className={clsx('text-[11px]', STATUS[status].color)}>{STATUS[status].label}</span>}
-        <span className="flex rounded-[3px] border border-line text-[11px]">
-          {(
-            [
-              ['sheet', 'Excel 側'],
-              ['source', 'ソース側'],
-            ] as const
-          ).map(([k, l]) => (
-            <button
-              key={k}
-              role="tab"
-              aria-selected={side === k}
-              className={clsx('px-2 py-0.5', side === k ? 'bg-focus text-fg-strong' : 'text-muted hover:text-fg')}
-              onClick={() => setSide(k)}
-            >
-              {l}
-            </button>
-          ))}
-        </span>
+      <div className="shrink-0 border-b border-line px-3 py-2">
+        <div className="mb-1 flex items-center gap-2 text-[11px] tracking-wide text-muted uppercase">
+          作成欄
+          <span className="normal-case">
+            {selectedFile ? (
+              <>
+                （ファイル: <span className="font-mono text-fg">{selectedFile}</span>）
+              </>
+            ) : (
+              '（ファイルを選ぶと名前を埋めます）'
+            )}
+          </span>
+        </div>
+        <textarea
+          ref={area}
+          aria-label="指示の作成欄"
+          className="h-[140px] w-full resize-y rounded-[3px] border border-line bg-editor px-2 py-1.5 text-[12.5px] leading-relaxed text-fg outline-none focus:border-accent"
+          placeholder="下のテンプレートを足して、具体的な内容を書き足してから「コピー」。Excel の Copilot に貼り付けます"
+          value={state.draft}
+          onChange={(e) => setDraft(e.target.value)}
+          spellCheck={false}
+        />
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <Button variant="primary" onClick={copyDraft} disabled={!state.draft.trim()} aria-label="作成欄をコピー">
+            {copied ? 'コピーしました' : 'コピー'}
+          </Button>
+          <Button
+            onClick={saveCustom}
+            disabled={!state.draft.trim()}
+            title="作成欄の内容を、自分のテンプレートとして保存"
+          >
+            テンプレートに保存
+          </Button>
+          <Button onClick={() => setDraft('')} disabled={!state.draft} title="作成欄を空にする">
+            クリア
+          </Button>
+        </div>
       </div>
-      <div className="shrink-0 px-3 py-1 text-[11px] text-faint">
-        {data &&
-          (side === 'sheet'
-            ? data.sheet
-              ? `${data.sheet.length} 行（シートの A 列）`
-              : 'シートがありません'
-            : data.source
-              ? `${data.source.length} 行（${data.format}）`
-              : 'ファイルがありません')}
-        {loading && '読み込んでいます...'}
-        {error && <span className="text-deleted">{error}</span>}
+      <div className="min-h-0 flex-1 overflow-auto px-3 py-2 text-[12px]">
+        {state.custom.length > 0 && (
+          <section className="mb-3">
+            <div className="mb-1 text-[11px] tracking-wide text-muted uppercase">自分のテンプレート</div>
+            <ul className="flex flex-col gap-1">
+              {state.custom.map((c) => (
+                <Template key={c.id} it={c} onRemove={() => removeCustom(c.id)} />
+              ))}
+            </ul>
+          </section>
+        )}
+        {PROMPT_GROUPS.map((g) => {
+          const items = g.items.filter((it) => !it.mode || it.mode === projectMode);
+          if (items.length === 0) return null;
+          const open = openGroup === g.title;
+          return (
+            <section key={g.title} className="mb-2">
+              <button
+                className="flex w-full items-center gap-1 py-1 text-left text-[11px] tracking-wide text-muted uppercase hover:text-fg"
+                onClick={() => setOpenGroup(open ? null : g.title)}
+                aria-expanded={open}
+              >
+                {open ? <Icon.ChevronDown size={12} /> : <Icon.ChevronRight size={12} />}
+                {g.title}
+                <span className="text-faint">{items.length}</span>
+              </button>
+              {open && (
+                <ul className="flex flex-col gap-1">
+                  {items.map((it) => (
+                    <Template key={it.id} it={it} />
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })}
       </div>
-      <pre
-        className="selectable m-0 min-h-0 flex-1 overflow-auto px-3 pb-3 font-mono text-[12px] leading-[18px] text-fg"
-        aria-label={`${selectedFile} の${side === 'sheet' ? 'Excel 側' : 'ソース側'}の内容`}
-      >
-        {lines?.map((l, i) => (
-          <div key={i} className="flex">
-            <span className="w-8 shrink-0 pr-2 text-right text-faint select-none">{i + 1}</span>
-            <span className="whitespace-pre">{l}</span>
-          </div>
-        ))}
-      </pre>
     </div>
   );
 }
 
-function HistoryPanel({ root, book }: { root: string | null; book: BookSummary | null }) {
-  const [commits, setCommits] = useState<CommitInfo[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-  const undoAt = book?.undo?.at;
+/** 作業メモ（.xlcode/notes.md）。少し待ってから自動で保存する */
+function NotesPanel({
+  root,
+  onLog,
+  onOpenTab,
+}: {
+  root: string | null;
+  onLog: (level: 'info' | 'error' | 'success', text: string) => void;
+  onOpenTab: () => void;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  const [savedText, setSavedText] = useState<string>('');
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
-    setCommits(null);
-    setError(null);
-    if (!root || !book) return;
-    let stale = false;
-    api.recentCommits(root, book.dirRel).then((r) => {
-      if (stale) return;
-      if (r.ok) setCommits(r.value);
-      else setError(r.error);
+    setText(null);
+    if (!root) return;
+    api.readDoc(root, NOTES_REL).then((r) => {
+      if (!r.ok) {
+        onLog('error', r.error);
+        return;
+      }
+      setText(r.value ?? '');
+      setSavedText(r.value ?? '');
     });
-    return () => {
-      stale = true;
-    };
-    // undoAt: Build / Sync のたびに読み直す
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root, book?.rel, book?.dirRel, undoAt]);
-  if (!book) return <Hint>ブックのタブを表示すると、そのフォルダのコミットの履歴が出ます。</Hint>;
-  if (error) return <Hint>{error}</Hint>;
-  if (commits === null) return <Hint>読み込んでいます...</Hint>;
-  if (commits.length === 0)
-    return (
-      <Hint>コミットがありません（Git で管理していないか、このフォルダのファイルをまだコミットしていません）。</Hint>
-    );
+  }, [root, onLog]);
+  const save = async (value: string) => {
+    if (!root || value === savedText) return;
+    const r = await api.writeDoc(root, NOTES_REL, value);
+    if (r.ok) {
+      setSavedText(value);
+      setSavedAt(new Date().toLocaleTimeString('ja-JP', { hour12: false }));
+    } else onLog('error', r.error);
+  };
+  const edit = (value: string) => {
+    setText(value);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => void save(value), 800);
+  };
+  if (!root) return <div className="px-3 py-3 text-[12px] text-muted">プロジェクトを開くと、メモを書けます。</div>;
   return (
-    <div className="px-3 py-2 text-[12px]">
-      <p className="mb-2 leading-relaxed text-muted">
-        <span className="font-mono">{book.dirRel || '.'}</span> のファイルに関わるコミット。「xlcode:」は Build / Sync
-        前の自動コミットです。前の状態に戻すには、ターミナルで{' '}
-        <span className="font-mono">git checkout ハッシュ -- ファイル</span>
-        のようにします。
-      </p>
-      <ul className="flex flex-col gap-1">
-        {commits.map((c) => (
-          <li key={c.hash} className="flex items-start gap-2 rounded-[3px] border border-line bg-editor px-2 py-1">
-            <button
-              className="shrink-0 font-mono text-[11px] text-link hover:underline"
-              title="ハッシュをコピー"
-              onClick={async () => {
-                if (await copyText(c.hash)) {
-                  setCopied(c.hash);
-                  setTimeout(() => setCopied(null), 1500);
-                }
-              }}
-            >
-              {copied === c.hash ? 'コピー済' : c.hash}
-            </button>
-            <span className="min-w-0 flex-1">
-              <span className={clsx('block truncate', c.auto ? 'text-muted' : 'text-fg')} title={c.subject}>
-                {c.subject}
-              </span>
-              <span className="block text-[11px] text-faint">
-                {new Date(c.date).toLocaleString('ja-JP', { hour12: false })}
-              </span>
-            </span>
-          </li>
-        ))}
-      </ul>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-1.5 text-[11px] text-muted">
+        <span className="min-w-0 flex-1 truncate">
+          <span className="font-mono">.xlcode/notes.md</span>（この PC だけ。Git には入りません）
+        </span>
+        <span className="text-faint">
+          {text !== null && text !== savedText ? '保存待ち' : savedAt ? `保存 ${savedAt}` : ''}
+        </span>
+        <button className="text-link hover:underline" onClick={onOpenTab} title="メモを大きなタブで開く">
+          タブで開く
+        </button>
+      </div>
+      <textarea
+        aria-label="作業メモ"
+        className="min-h-0 flex-1 resize-none bg-editor px-3 py-2 font-mono text-[12.5px] leading-[19px] text-fg outline-none"
+        placeholder="気づいたこと、Copilot に頼んだこと、次にやることなど。入力をやめると自動で保存します"
+        value={text ?? ''}
+        readOnly={text === null}
+        onChange={(e) => edit(e.target.value)}
+        onBlur={() => text !== null && void save(text)}
+        spellCheck={false}
+      />
     </div>
   );
-}
-
-function Hint({ children }: { children: React.ReactNode }) {
-  return <div className="px-3 py-3 text-[12px] leading-relaxed text-muted">{children}</div>;
 }

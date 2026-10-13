@@ -22,6 +22,9 @@ export const STATE_FILE = 'state.json';
 export const TREE_FILE = 'tree.txt';
 export const CONFIG_FILE = 'config.json';
 
+/** 作業メモ（.xlcode/notes.md。PC ごと。Git では管理しない） */
+export const NOTES_FILE = 'notes.md';
+
 /** ブックにしないファイル・フォルダの一覧（プロジェクトルート。.gitignore と同じ書き方） */
 export const IGNORE_FILE = '.xlcodeignore';
 

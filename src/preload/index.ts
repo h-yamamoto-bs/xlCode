@@ -19,6 +19,8 @@ const api: XlcodeApi = {
   bookDiff: call('bookDiff') as XlcodeApi['bookDiff'],
   fileContents: call('fileContents') as XlcodeApi['fileContents'],
   recentCommits: call('recentCommits') as XlcodeApi['recentCommits'],
+  openFile: call('openFile') as XlcodeApi['openFile'],
+  revealFile: call('revealFile') as XlcodeApi['revealFile'],
   undoLast: call('undoLast') as XlcodeApi['undoLast'],
   openInExcel: call('openInExcel') as XlcodeApi['openInExcel'],
   openTerminal: call('openTerminal') as XlcodeApi['openTerminal'],
