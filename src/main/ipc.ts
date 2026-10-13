@@ -15,7 +15,10 @@ import {
   findBooks,
   gitSummary,
   initProject,
+  ignoreRules,
+  isCodeName,
   listDirsWithoutBook,
+  previewDirFiles,
   bookRef,
   bookRootOf,
   loadConfig,
@@ -107,6 +110,13 @@ async function loadProject(root: string): Promise<ProjectInfo> {
   ];
   const docs: string[] = [];
   for (const d of docCandidates) if (await exists(path.join(root, ...d.split('/')))) docs.push(d);
+  const rulesOf = async (name: string) =>
+    readFile(path.join(root, name), 'utf8').then(
+      (t) => ignoreRules(t),
+      () => null,
+    );
+  const xl = await rulesOf(IGNORE_FILE);
+  const gi = await rulesOf('.gitignore');
   return {
     root,
     name: path.basename(root),
@@ -119,6 +129,7 @@ async function loadProject(root: string): Promise<ProjectInfo> {
     mode: config.mode ?? 'source',
     modeSet: config.mode !== undefined,
     docs,
+    ignore: { xlcode: xl ? xl.length : null, git: gi ? gi.length : null, gitSample: gi?.slice(0, 5) ?? [] },
   };
 }
 
@@ -212,6 +223,14 @@ export function registerIpc(): void {
   ipcMain.handle('refreshTree', (_e, root: string) => wrap(() => refreshTree(root)));
   ipcMain.handle('createBook', (_e, root: string, dirRel: string) =>
     wrap(() => createBook(root, inside(root, dirRel))),
+  );
+  ipcMain.handle('previewBook', (_e, root: string, dirRel: string) =>
+    wrap(async () => {
+      const config = await loadConfig(root);
+      return previewDirFiles(root, inside(root, dirRel), await loadIgnore(root), (n) =>
+        isCodeName(n, config.extraCodeNames),
+      );
+    }),
   );
   ipcMain.handle('build', (_e, root: string, book: string, opts) =>
     wrap(async () => {

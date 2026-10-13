@@ -5,6 +5,17 @@ import { api, unwrap } from '../api';
 import { Icon } from './Icons';
 import { Button, Kbd } from './ui';
 
+/** .xlcodeignore がまだ無いときに編集欄へ入れておく雛形（core の IGNORE_TEMPLATE と同じ内容） */
+const IGNORE_TEMPLATE = `# xlCode でブック（シート）にしないファイル・フォルダ
+# .gitignore と同じ書き方。ここに書いたものは、Git では管理したまま、シートにも #tree にも載りません。
+# 変更したら、ブック画面の「Sync」（既にシートになっているものはシートから消えます）と Refresh Tree を実行します。
+#
+# 例:
+# docs/
+# *.min.js
+# package-lock.json
+`;
+
 /** Agents.md が厚すぎると Copilot が生成を停止する（1.4）ための目安 */
 const LINE_LIMIT = 100;
 
@@ -73,8 +84,12 @@ export function DocEditor({
       .then((t) => {
         setSaved(t ?? '');
         setExists(t !== null);
+        // .xlcodeignore がまだ無ければ、書き方の雛形を入れておく（保存すると作られる）
+        if (t === null && docKind(rel) === 'ignore' && !draft) onDraft(rel, { text: IGNORE_TEMPLATE, base: '' });
       })
       .catch((e: Error) => onError(e.message));
+    // draft / onDraft は初回の読み込みだけに使う
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root, rel, onError]);
 
   // ウィンドウに戻ったとき（エディタで編集した後など）にディスクの内容を読み直す

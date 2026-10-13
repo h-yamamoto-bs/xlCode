@@ -238,6 +238,9 @@ describe('ブックの置き場所', () => {
     running = await launch(f.root);
     const { win } = running;
     await win.getByTitle('ルート にブックを作成').click();
+    // .xlcodeignore も .gitignore も無いので、全ファイルがシートになる旨の確認が出る
+    await win.getByText('.gitignore もありません', { exact: false }).waitFor();
+    await win.getByRole('button', { name: 'このまま作成' }).click();
     await win.getByText('プロジェクトの種類を選んでください').waitFor();
     await win.getByRole('button', { name: 'VBA', exact: true }).click();
     await win.getByRole('button', { name: 'プロジェクトの中に置く' }).click();
@@ -291,6 +294,7 @@ describe('ブックの置き場所', () => {
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [file] })) as typeof dialog.showOpenDialog;
     }, f.file('tool.xlsm'));
     await win.getByTitle('ルート にブックを作成').click();
+    await win.getByRole('button', { name: 'このまま作成' }).click();
     await win.getByRole('button', { name: 'プロジェクトの中に置く' }).click();
     await win.getByRole('button', { name: '既存の Excel ツールから作成…' }).click();
     // 失敗の理由はその場（ダイアログ）に出る
@@ -307,6 +311,8 @@ describe('ブックの置き場所', () => {
     running = await launch(f.root);
     const { win } = running;
     await win.getByTitle('すべてのディレクトリにブックを作成').click();
+    await win.getByText('3 個のフォルダでシートになるファイル: 2 件').waitFor();
+    await win.getByRole('button', { name: 'このまま作成' }).click();
     await win.getByRole('button', { name: 'ソースコード', exact: true }).click();
     await win.getByRole('button', { name: 'プロジェクトの中に置く' }).click();
     await win.getByText('3 個のディレクトリにブックを作成しますか？').waitFor();
@@ -328,6 +334,7 @@ describe('ブックの置き場所', () => {
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [dir] })) as typeof dialog.showOpenDialog;
     }, onedrive);
     await win.getByTitle('ルート にブックを作成').click();
+    await win.getByRole('button', { name: 'このまま作成' }).click();
     await win.getByRole('button', { name: 'ソースコード', exact: true }).click();
     await win.getByText('編集用ブックをどこに置きますか？').waitFor();
     await win.getByRole('button', { name: 'OneDrive のフォルダを選ぶ…' }).click();
@@ -585,5 +592,69 @@ describe('ブックにしないファイル（.xlcodeignore）', () => {
     expect(await readdir(xl)).toEqual([]);
     expect((await readdir(f.file('app'))).filter((n) => n.endsWith('.xlsx'))).toEqual(['app.xlcode.xlsx']);
     await win.getByText('ブックがありません').first().waitFor();
+  });
+});
+
+describe('ブック作成前の除外の確認', () => {
+  it('.xlcodeignore に指定が無ければ .gitignore に従ってよいか確認し、先に編集もできる', async () => {
+    const f = await project();
+    running = await launch(f.root);
+    const { win } = running;
+    // ルートにはまだブックが無い
+    await win.getByText('ブック未作成のディレクトリ').click();
+    await win.getByTitle('ルート にブックを作成').click();
+    const dialog = win.getByRole('dialog', { name: 'ブックにしないファイルの指定がありません' });
+    await dialog.waitFor();
+    // 初期化で xlCode 用の除外も .gitignore に足されているので 4 件
+    await dialog.getByText(/\.gitignore の除外（4 件: node_modules\//).waitFor();
+    // ルート直下でシートになるのは .gitignore だけ（Agents.md と .xlcodeignore は常に対象外）
+    await dialog.getByText('シートになるファイル: 1 件', { exact: false }).waitFor();
+    // 先に編集: 雛形が入った .xlcodeignore のタブが開く
+    await dialog.getByRole('button', { name: '先に .xlcodeignore を編集' }).click();
+    const editor = win.getByRole('textbox', { name: '.xlcodeignore' });
+    await editor.waitFor();
+    await expect(editor.inputValue()).resolves.toContain('.gitignore と同じ書き方');
+    await editor.click();
+    await editor.press('Control+End');
+    await editor.pressSequentially('\n.gitignore\n');
+    await editor.press('Control+s');
+    await waitLog(win, '保存しました: .xlcodeignore');
+    // 指定があれば確認は出ず、そのまま（種類が未設定なのでその選択のあと）ブック作成の確認へ進む
+    await win.getByTitle('ルート にブックを作成').click();
+    await win.getByText('プロジェクトの種類を選んでください').waitFor();
+    await expect(win.getByRole('dialog', { name: 'ブックにしないファイルの指定がありません' }).count()).resolves.toBe(
+      0,
+    );
+    await win.getByRole('button', { name: 'ソースコード', exact: true }).click();
+    await win.getByText('ブックを作成しますか？').waitFor();
+    await win.getByRole('button', { name: '作成', exact: true }).click();
+    await waitLog(win, /ブックを作成しました/);
+    const { readdir } = await import('node:fs/promises');
+    const path = await import('node:path');
+    const name = `${path.basename(f.root)}.xlcode.xlsx`;
+    expect(await readdir(f.root)).toContain(name);
+    const { Book } = await import('../src/core/workbook');
+    const b = await Book.load(f.file(name));
+    expect(b.sheetNames()).not.toContain('.gitignore');
+    expect(b.sheetNames()).not.toContain('.xlcodeignore');
+  });
+
+  it('「今後確認しない」を選ぶと、そのプロジェクトでは聞かれなくなる', async () => {
+    const { fixture } = await import('../tests/helpers');
+    const f = await fixture({ 'a/x.ts': 'export const x = 1;\n', 'b/y.ts': 'export const y = 1;\n' }, { git: true });
+    running = await launch(f.root);
+    const { win } = running;
+    await win.getByTitle('a にブックを作成').click();
+    const dialog = win.getByRole('dialog', { name: 'ブックにしないファイルの指定がありません' });
+    await dialog.getByLabel('このプロジェクトでは今後確認しない').check();
+    await dialog.getByRole('button', { name: 'このまま作成' }).click();
+    await win.getByRole('button', { name: 'ソースコード', exact: true }).click();
+    await win.getByRole('button', { name: 'プロジェクトの中に置く' }).click();
+    await win.getByRole('button', { name: '作成', exact: true }).click();
+    await waitLog(win, /ブックを作成しました/);
+    await win.getByTitle('b にブックを作成').click();
+    await win.getByText('ブックを作成しますか？').waitFor();
+    await expect(dialog.count()).resolves.toBe(0);
+    await win.getByRole('button', { name: 'キャンセル' }).click();
   });
 });

@@ -839,9 +839,98 @@ export function App() {
     return value;
   }, [ask]);
 
+  /**
+   * ブックを作る前に、ブックにしないファイルの指定（.xlcodeignore）が無ければ確認する。
+   * .gitignore の除外だけに従ってよいか、.gitignore も無ければ全ファイルがシートになることを知らせる。
+   * 続けてよければ true。「先に編集」なら .xlcodeignore を開いて false
+   */
+  const confirmIgnore = useCallback(
+    async (dirs: string[]): Promise<boolean> => {
+      if (!project || !root) return true;
+      // 保存した直後でも最新の状態を見る（画面の再読み込みを待たない）
+      const latest = await api.loadProject(root);
+      const ignoreInfo = latest.ok ? latest.value.ignore : project.ignore;
+      if ((ignoreInfo.xlcode ?? 0) > 0) return true;
+      if (storageGet<Record<string, boolean>>('ignoreConfirmed', {})[root]) return true;
+      // 作る対象のファイルを数える（多いときは最初の数フォルダだけ）
+      let sheets = 0;
+      let ignored = 0;
+      let nonCode = 0;
+      const samples: string[] = [];
+      for (const d of dirs.slice(0, 50)) {
+        const r = await api.previewBook(root, d);
+        if (!r.ok) continue;
+        sheets += r.value.sheets.length;
+        ignored += r.value.ignored.length;
+        nonCode += r.value.nonCode.length;
+        for (const f of r.value.sheets) if (samples.length < 8) samples.push(d ? `${d}/${f}` : f);
+      }
+      const git = ignoreInfo.git;
+      const { value, checked } = await ask<'go' | 'edit' | null>({
+        title: 'ブックにしないファイルの指定がありません',
+        icon: git === null ? 'warning' : 'info',
+        body: (
+          <div className="flex flex-col gap-2">
+            <p>
+              <span className="font-mono">.xlcodeignore</span> に除外の指定が
+              {ignoreInfo.xlcode === null ? 'ありません（ファイルがありません）' : '書かれていません'}。
+            </p>
+            {git === null ? (
+              <p className="text-warn">
+                .gitignore
+                もありません。フォルダの中のすべてのファイル（生成ファイルや依存パッケージがあればそれも）がシートになります。
+              </p>
+            ) : (
+              <p>
+                .gitignore の除外（{git} 件
+                {ignoreInfo.gitSample.length > 0 && (
+                  <>
+                    : <span className="font-mono">{ignoreInfo.gitSample.join(' ')}</span>
+                    {git > ignoreInfo.gitSample.length && ' …'}
+                  </>
+                )}
+                ）だけに従ってブックを作ります。ドキュメントや生成ファイルなど、Git
+                では管理するがブックにはしたくないものがあれば、先に .xlcodeignore に書いてください。
+              </p>
+            )}
+            <p className="text-[12px] text-muted">
+              {dirs.length > 1 ? `${dirs.length} 個のフォルダで` : ''}シートになるファイル: {sheets} 件
+              {ignored > 0 && `（除外: ${ignored} 件）`}
+              {nonCode > 0 && `（拡張子が無いため対象外: ${nonCode} 件）`}
+              {samples.length > 0 && (
+                <span className="mt-1 block font-mono text-faint">
+                  {samples.join('  ')}
+                  {sheets > samples.length && ' …'}
+                </span>
+              )}
+            </p>
+          </div>
+        ),
+        checkbox: 'このプロジェクトでは今後確認しない',
+        buttons: [
+          { label: '先に .xlcodeignore を編集', value: 'edit', variant: git === null ? 'primary' : 'secondary' },
+          { label: 'このまま作成', value: 'go', variant: git === null ? 'secondary' : 'primary' },
+          { label: 'キャンセル', value: null },
+        ],
+        cancelValue: null,
+      });
+      if (value === 'edit') {
+        open('doc', '.xlcodeignore');
+        log('info', '.xlcodeignore を編集してから、もう一度ブックを作成してください');
+        return false;
+      }
+      if (value === 'go' && checked) {
+        storageSet('ignoreConfirmed', { ...storageGet<Record<string, boolean>>('ignoreConfirmed', {}), [root]: true });
+      }
+      return value === 'go';
+    },
+    [project, root, ask, open, log],
+  );
+
   const onCreateBook = useCallback(
     (dirRel: string) =>
       withBusy('ブック作成中', async () => {
+        if (!(await confirmIgnore([dirRel]))) return;
         const name = (dirRel.split('/').pop() || project?.name) ?? '';
         let pmode = project?.mode ?? 'source';
         if (project && !project.modeSet) {
@@ -968,7 +1057,7 @@ export function App() {
         });
         open('book', r.book);
       }),
-    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot, setLastResult, open],
+    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot, setLastResult, open, confirmIgnore],
   );
 
   /** ブックの無いディレクトリすべてにブックを作る（ソースコードモード） */
@@ -977,6 +1066,7 @@ export function App() {
       withBusy('ブック作成中', async () => {
         const dirs = project?.dirsWithoutBook ?? [];
         if (!project || dirs.length === 0) return;
+        if (!(await confirmIgnore(dirs))) return;
         if (!project.modeSet) {
           const chosen = await chooseMode();
           if (!chosen) return;
@@ -1021,7 +1111,7 @@ export function App() {
         }
         log(made === dirs.length ? 'success' : 'warning', `ブックを ${made} / ${dirs.length} 冊作成しました`);
       }),
-    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot],
+    [withBusy, ask, root, project, log, chooseMode, chooseBookRoot, confirmIgnore],
   );
 
   const openProject = useCallback(

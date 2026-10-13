@@ -7,7 +7,17 @@ export { bookStatus, bookDiff, type BookStatus, type FileDiff } from './status';
 export { undoLast, undoInfo, type UndoInfo, type UndoResult } from './undo';
 export type { DiffLine, Hunk } from './diff';
 export { checkBookOpen } from './lock';
-export { findBooks, loadIgnore, listDirsWithoutBook, IGNORE_SOURCES, IGNORE_TEMPLATE } from './fsutil';
+export {
+  findBooks,
+  loadIgnore,
+  listDirsWithoutBook,
+  ignoreRules,
+  previewDirFiles,
+  IGNORE_SOURCES,
+  IGNORE_TEMPLATE,
+  type DirFilesPreview,
+} from './fsutil';
+export { isCodeName } from './sheetName';
 export type { OpResult, OpStatus, Confirmation, Change } from './result';
 export type { FileStatus } from './scan';
 export { gitSummary, type GitSummary } from './git';

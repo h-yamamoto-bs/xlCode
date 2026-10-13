@@ -133,6 +133,47 @@ export async function listSourceFiles(root: string, dirAbs: string, ig: Ignore):
   return files.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** 除外ファイル（.gitignore / .xlcodeignore）の有効な行（空行・コメント以外） */
+export function ignoreRules(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '' && !l.startsWith('#'));
+}
+
+export interface DirFilesPreview {
+  /** シートになるファイル */
+  sheets: string[];
+  /** .gitignore / .xlcodeignore で除外されるファイル */
+  ignored: string[];
+  /** 拡張子が無いなどでコードとして扱わないファイル */
+  nonCode: string[];
+}
+
+/**
+ * ブックを作る前に、ディレクトリ直下のファイルがどう扱われるかを見る（ブック作成の確認用）。
+ * バイナリかどうかは中身を読まないと分からないので、ここでは見ない
+ */
+export async function previewDirFiles(
+  root: string,
+  dirAbs: string,
+  ig: Ignore,
+  isCode: (name: string) => boolean,
+): Promise<DirFilesPreview> {
+  const out: DirFilesPreview = { sheets: [], ignored: [], nonCode: [] };
+  const isRoot = path.resolve(dirAbs) === path.resolve(root);
+  for (const e of await readdir(dirAbs, { withFileTypes: true })) {
+    if (!e.isFile() || isBookFile(e.name) || e.name.startsWith('~$')) continue;
+    if (isRoot && e.name === AGENTS_SHEET) continue;
+    const rel = toPosixRel(root, path.join(dirAbs, e.name));
+    if (isIgnored(ig, rel, false)) out.ignored.push(e.name);
+    else if (!isCode(e.name)) out.nonCode.push(e.name);
+    else out.sheets.push(e.name);
+  }
+  for (const k of ['sheets', 'ignored', 'nonCode'] as const) out[k].sort((a, b) => a.localeCompare(b));
+  return out;
+}
+
 export interface TreeNode {
   name: string;
   dir: boolean;

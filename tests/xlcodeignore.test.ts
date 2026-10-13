@@ -115,3 +115,35 @@ describe('ブックの置き場所の変更（移動せずに変更）', () => {
     expect((await relocateBooks(f.root, xl)).moved).toEqual(['app/app.xlcode.xlsx']);
   });
 });
+
+describe('ブック作成前の確認用の情報', () => {
+  it('除外ファイルの有効な行を数える', async () => {
+    const { ignoreRules } = await import('../src/core');
+    expect(ignoreRules('# メモ\n\n docs/ \n*.min.js\r\n#x\n')).toEqual(['docs/', '*.min.js']);
+    expect(ignoreRules('')).toEqual([]);
+  });
+
+  it('ディレクトリのファイルを、シート / 除外 / 対象外に分ける', async () => {
+    const { previewDirFiles, isCodeName, loadIgnore } = await import('../src/core');
+    const f = await fixture({
+      '.gitignore': '*.log\n',
+      'a.ts': '1\n',
+      'b.log': '2\n',
+      Makefile: '3\n',
+      NOTES: '4\n',
+      'Agents.md': '# x\n',
+      'sub/c.ts': '5\n',
+      'sub/c.min.js': '6\n',
+    });
+    await f.write('.xlcodeignore', '*.min.js\n');
+    const ig = await loadIgnore(f.root);
+    const root = await previewDirFiles(f.root, f.root, ig, (n) => isCodeName(n));
+    expect(root).toEqual({
+      sheets: ['.gitignore', 'a.ts', 'Makefile'],
+      ignored: ['.xlcodeignore', 'b.log'],
+      nonCode: ['NOTES'],
+    });
+    const sub = await previewDirFiles(f.root, f.file('sub'), ig, (n) => isCodeName(n));
+    expect(sub).toEqual({ sheets: ['c.ts'], ignored: ['c.min.js'], nonCode: [] });
+  });
+});

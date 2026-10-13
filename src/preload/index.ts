@@ -13,6 +13,7 @@ const api: XlcodeApi = {
   initProject: call('initProject') as XlcodeApi['initProject'],
   refreshTree: call('refreshTree') as XlcodeApi['refreshTree'],
   createBook: call('createBook') as XlcodeApi['createBook'],
+  previewBook: call('previewBook') as XlcodeApi['previewBook'],
   build: call('build') as XlcodeApi['build'],
   sync: call('sync') as XlcodeApi['sync'],
   bookDiff: call('bookDiff') as XlcodeApi['bookDiff'],

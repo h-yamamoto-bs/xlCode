@@ -2,6 +2,7 @@ import type {
   BookStatus,
   BuildOptions,
   CreateBookResult,
+  DirFilesPreview,
   FileDiff,
   GitSummary,
   OpResult,
@@ -79,6 +80,17 @@ export interface ProjectInfo {
    * Agents.md / <dir>/LocalAgents.md / .xlcodeignore
    */
   docs: string[];
+  /** 除外ファイルの状態（ブック作成の前の確認に使う） */
+  ignore: IgnoreInfo;
+}
+
+export interface IgnoreInfo {
+  /** .xlcodeignore の有効な行の数（ファイルが無ければ null） */
+  xlcode: number | null;
+  /** .gitignore の有効な行の数（ファイルが無ければ null） */
+  git: number | null;
+  /** .gitignore の有効な行の先頭いくつか（表示用） */
+  gitSample: string[];
 }
 
 /** xlCode で編集できるドキュメントの種類 */
@@ -93,6 +105,8 @@ export interface XlcodeApi {
   initProject(root: string): Promise<Result<string[]>>;
   refreshTree(root: string): Promise<Result<RefreshResult>>;
   createBook(root: string, dirRel: string): Promise<Result<CreateBookResult>>;
+  /** ブックを作る前に、ディレクトリのファイルがどう扱われるか（シート / 除外 / 対象外）を見る */
+  previewBook(root: string, dirRel: string): Promise<Result<DirFilesPreview>>;
   build(root: string, bookRel: string, opts: BuildOptions): Promise<Result<OpResult>>;
   sync(root: string, bookRel: string, opts: SyncOptions): Promise<Result<OpResult>>;
   /** web の場合は開いた URL を返す */

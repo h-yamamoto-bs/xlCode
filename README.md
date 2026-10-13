@@ -63,7 +63,7 @@ npm run package:win      # Windows 用インストーラー（dist/xlCode-Setup-
 - **デスクトップで開く / Webで開く**: ブックに反映していないソースの変更があれば Sync してから起動（5.5-2）。変更が無ければ確認も Sync もせずにそのまま開く。Web 版の URL は Windows の OneDrive 同期設定（レジストリを UTF-8 で読むので日本語のフォルダ名も可）から求め、個人用 OneDrive は同期データベース（SyncEngineDatabase.db）からファイルの ID を求めて開く（無理なら「オンラインで表示」）（どちらも無理なら設定で指定）
 - **Build / Sync**: 確認が必要な場合（未コミット変更・省略検知・削除）はダイアログを表示。Sync で未 Build 変更があれば「先に Build / 破棄 / 中止」を選択
 - **ルール**: Agents.md（100 行超で警告）と各 LocalAgents.md をエクスプローラーからタブで編集
-- **ブックにしないファイル**: ルートの `.xlcodeignore`（.gitignore と同じ書き方）に書いたファイル・フォルダは、Git 管理のままシート・#tree・ブック作成の候補から外す
+- **ブックにしないファイル**: ルートの `.xlcodeignore`（.gitignore と同じ書き方）に書いたファイル・フォルダは、Git 管理のままシート・#tree・ブック作成の候補から外す。指定が無いままブックを作るときは、.gitignore だけに従ってよいか（.gitignore も無ければ全ファイルがシートになること）を、シートになるファイル数と一緒に確認する
 - **ブックの置き場所の変更**: 設定でフォルダを選ぶか入力し、既存のブックを移動する。自分で移動済み・フォルダ名を変えた場合は「移動しない」で設定だけ変える。OneDrive の一時的なロックは数秒待つ
 - プロジェクトを開いたときに Refresh Tree を自動実行（6.4）。ウィンドウに戻ったときに状態を再読み込み
 - ショートカット（VS Code 準拠）: Ctrl+O 開く / Ctrl+R 最近 / Ctrl+P クイックオープン / Ctrl+Shift+P コマンド / Ctrl+Shift+B Build / Ctrl+Shift+S Sync / Ctrl+W タブを閉じる / Ctrl+Tab タブ切替 / Ctrl+B サイドバー / Ctrl+J パネル / Ctrl+, 設定 / F1 ヘルプ（全一覧はヘルプの「ショートカット」）
