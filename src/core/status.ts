@@ -2,11 +2,15 @@ import { TREE_SHEET } from './constants';
 import { diffLines, summarize, toHunks, type Hunk } from './diff';
 import { textToLines } from './normalize';
 import { defaultFormat, formatLabel } from './encoding';
+import { readTextFile } from './fsutil';
+import { classifySheet } from './sheetName';
+import path from 'node:path';
 import { bookRef, bookRootOf, openProject } from './project';
 import { parseTreeVersion } from './tree';
 import { scanBook, type FileStatus } from './scan';
 import { undoInfo, type UndoInfo } from './undo';
 import { modulesFromBook, vbaOutputInfo, type VbaBookInfo } from './vba';
+import { Book } from './workbook';
 
 export interface BookStatus {
   book: string;
@@ -102,3 +106,41 @@ export async function bookDiff(root: string, bookAbs: string): Promise<FileDiff[
 
 /** 差分を「ソース側（現在）→ Excel 側（これから）」の向きで見せる状態 */
 const EXCEL_TO_SOURCE: FileStatus[] = ['excel-changed', 'excel-new', 'conflict'];
+
+export interface FileContents {
+  name: string;
+  /** Excel 側（シートの A 列）。シートが無ければ null */
+  sheet: string[] | null;
+  /** ソース側（ファイルの内容の行）。ファイルが無ければ null */
+  source: string[] | null;
+  /** ソースファイルの形式（無ければ拡張子の標準） */
+  format: string;
+}
+
+/**
+ * 1 ファイルの Excel 側とソース側の内容をそのまま返す（右のパネルの「内容」用。整形はしない）。
+ * コードのシート・ファイルだけが対象（UI 用シートなどは読まない）
+ */
+export async function fileContents(root: string, bookAbs: string, name: string): Promise<FileContents> {
+  const ctx = await openProject(root);
+  const ref = bookRef(root, bookAbs, bookRootOf(root, ctx.config));
+  const book = await Book.load(ref.abs);
+  const sheetName = book.sheetNames().find((n) => {
+    const info = classifySheet(n, ctx.config.extraCodeNames);
+    return info.kind === 'code' && info.fileName!.toLowerCase() === name.toLowerCase();
+  });
+  const sheet = sheetName ? book.readSheet(sheetName).lines : null;
+  let source: string[] | null = null;
+  let format = formatLabel(defaultFormat(name));
+  if (/[\\/]/.test(name)) throw new Error(`ファイル名が不正です: ${name}`);
+  try {
+    const read = await readTextFile(path.join(ref.dirAbs, name));
+    if (read.kind !== 'binary') {
+      source = textToLines(read.text.replace(/\r\n?/g, '\n'));
+      format = formatLabel(read.format);
+    }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
+  return { name, sheet, source, format };
+}

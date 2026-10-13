@@ -194,8 +194,13 @@ export function BookView({
   onHelp,
   onOpenDoc,
   platform = 'win32',
+  selectedFile = null,
+  onSelectFile,
 }: {
   root: string;
+  /** 一覧で選んでいるファイル（右のパネルの「内容」「指示」が使う） */
+  selectedFile?: string | null;
+  onSelectFile?: (name: string | null) => void;
   /** ドキュメント（LocalAgents.md など）をタブで開く */
   onOpenDoc?: (rel: string) => void;
   platform?: string;
@@ -602,9 +607,16 @@ export function BookView({
                   return [
                     <tr
                       key={f.name}
-                      className={clsx('h-[24px] border-t border-line', changed && 'cursor-pointer', 'hover:bg-hover')}
-                      onClick={changed ? () => toggle(f.name) : undefined}
+                      className={clsx(
+                        'h-[24px] cursor-pointer border-t border-line',
+                        selectedFile === f.name ? 'bg-focus' : 'hover:bg-hover',
+                      )}
+                      onClick={() => {
+                        onSelectFile?.(f.name);
+                        if (changed) toggle(f.name);
+                      }}
                       aria-expanded={changed ? open : undefined}
+                      aria-selected={selectedFile === f.name ? true : undefined}
                     >
                       <td className={clsx('px-3 text-center font-mono text-[12px]', m.color)} title={m.label}>
                         {m.letter || <Icon.Check size={12} className="inline text-faint" />}

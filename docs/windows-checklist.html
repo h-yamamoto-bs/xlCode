@@ -224,6 +224,9 @@ const ITEMS = [
   { id: 'T-5', cat: 'tabs', pri: 'mid', tag: 'new', title: '高 DPI（125% / 150%）での表示', steps: 'ディスプレイの拡大率を変えて起動', expect: 'タブ・サイドバー・パレットがにじまず、文字が切れない' },
   { id: 'T-6', cat: 'tabs', pri: 'mid', tag: 'new', title: 'エクスプローラーの Agents.md / LocalAgents.md / .xlcodeignore', steps: 'それぞれ押す。無いファイル（薄い字）を開いて保存', expect: 'タブで開く。保存で作られ、薄い字が通常の表示になる。VS Code で同じファイルを直すと「ほかの場所で変更されました」が出る' },
   { id: 'T-7', cat: 'tabs', pri: 'low', tag: 'new', title: 'プロジェクトを切り替えてもタブは混ざらない', steps: 'A を開いてタブを作り、Ctrl+R で B を開き、再び A', expect: 'A のタブだけが戻る' },
+  { id: 'T-8', cat: 'tabs', pri: 'mid', tag: 'new', title: '左右のサイドバーの開閉と幅', steps: 'タブバー右端のボタン・Ctrl+B・Ctrl+Alt+B で開閉。境目をドラッグ、ダブルクリック', expect: '開閉と幅が変わり、再起動後も同じ。ドラッグ中にウィンドウが動いたり文字が選択されたりしない' },
+  { id: 'T-9', cat: 'tabs', pri: 'mid', tag: 'new', title: '右のパネル「指示」のコピー', steps: '「コピー」→ Excel の Copilot の入力欄に Ctrl+V', expect: 'テンプレートの文がそのまま貼り付く。「コピーしました」が出る' },
+  { id: 'T-10', cat: 'tabs', pri: 'low', tag: 'new', title: '右のパネル「内容」「履歴」', steps: 'ファイル一覧の行を選ぶ。Build / Sync を 1 回行う', expect: 'Excel 側とソース側の内容が出て、Build / Sync 後に自動で読み直す。履歴に自動コミットが増える' },
   // デスクトップ版 Excel の検知
   { id: 'L-1', cat: 'lock', pri: 'high', tag: 'base', title: 'OneDrive 外のブックをデスクトップ版で開く', steps: '「デスクトップで開く」', expect: 'サイドバーに鍵、Build / Sync が押せない。フォルダに ~$ ファイルができる' },
   { id: 'L-2', cat: 'lock', pri: 'high', tag: 'base', title: 'Excel を閉じると自動で解除される', steps: 'L-1 の状態で閉じる', expect: '数秒以内に鍵が消え、出力に「Excel が閉じられました」' },

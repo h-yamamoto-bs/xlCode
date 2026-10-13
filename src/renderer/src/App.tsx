@@ -9,13 +9,16 @@ import { useDialog } from './components/Dialogs';
 import { DocEditor, docKind, type Draft } from './components/DocEditor';
 import { HelpView } from './components/HelpView';
 import { Icon } from './components/Icons';
+import { EmptySidebar } from './components/EmptySidebar';
 import { Palette, type PaletteItem, type PaletteSpec } from './components/Palette';
+import { Resizer } from './components/Resizer';
+import { SECONDARY_TABS, SecondarySidebar, type SecondaryTab } from './components/SecondarySidebar';
 import { Panel, type LogEntry, type Problem } from './components/Panel';
 import { EXCEL_MODES, SettingsView, type RelocateMode } from './components/SettingsView';
 import { Sidebar, type OpenTarget } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
 import { TabBar, type TabView } from './components/TabBar';
-import { Kbd } from './components/ui';
+import { IconButton, Kbd } from './components/ui';
 import { Welcome } from './components/Welcome';
 import { allowedWhileTyping, eventToKey, formatKey, isTyping } from './keys';
 import { SOURCE_SIDE, SYNC_META } from './status';
@@ -61,6 +64,22 @@ function localAgentsOf(dirRel: string): string {
   return dirRel ? `${dirRel}/LocalAgents.md` : 'LocalAgents.md';
 }
 
+/** 左右のサイドバーの開閉と幅 */
+interface Layout {
+  sidebarOpen: boolean;
+  sidebarWidth: number;
+  rightOpen: boolean;
+  rightWidth: number;
+  rightTab: SecondaryTab;
+}
+const DEFAULT_LAYOUT: Layout = {
+  sidebarOpen: true,
+  sidebarWidth: 280,
+  rightOpen: false,
+  rightWidth: 340,
+  rightTab: 'prompts',
+};
+
 export function App() {
   const [root, setRoot] = useState<string | null>(null);
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -94,7 +113,26 @@ export function App() {
     },
     [open],
   );
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // ---- 画面の配置（左右のサイドバーの開閉と幅。このパソコンで覚えておく） ----
+  const [layout, setLayout] = useState<Layout>(() => ({
+    ...DEFAULT_LAYOUT,
+    ...storageGet<Partial<Layout>>('layout', {}),
+  }));
+  useEffect(() => storageSet('layout', layout), [layout]);
+  const sidebarOpen = layout.sidebarOpen;
+  const setSidebarOpen = useCallback(
+    (v: boolean | ((prev: boolean) => boolean)) =>
+      setLayout((l) => ({ ...l, sidebarOpen: typeof v === 'function' ? v(l.sidebarOpen) : v })),
+    [],
+  );
+  const setRightOpen = useCallback(
+    (v: boolean | ((prev: boolean) => boolean)) =>
+      setLayout((l) => ({ ...l, rightOpen: typeof v === 'function' ? v(l.rightOpen) : v })),
+    [],
+  );
+  const showRightTab = useCallback((t: SecondaryTab) => setLayout((l) => ({ ...l, rightOpen: true, rightTab: t })), []);
+  // ブック画面の一覧で選んでいるファイル（キー: ブック）
+  const [selectedFiles, setSelectedFiles] = useState<Record<string, string>>({});
   const [explorerFocus, setExplorerFocus] = useState(0);
   // 保存していない Markdown などの編集内容（ファイルや画面を切り替えても保持する）
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -1599,11 +1637,23 @@ export function App() {
       {
         id: 'toggle-sidebar',
         category: '表示',
-        title: 'サイドバーの表示 / 非表示',
+        title: '左のサイドバーの表示 / 非表示',
         keys: ['ctrl+b'],
-        when: hasProject,
         run: () => setSidebarOpen((v) => !v),
       },
+      {
+        id: 'toggle-secondary',
+        category: '表示',
+        title: '右のパネルの表示 / 非表示（指示・内容・履歴）',
+        keys: ['ctrl+alt+b'],
+        run: () => setRightOpen((v) => !v),
+      },
+      ...SECONDARY_TABS.map((t): Command => ({
+        id: `secondary-${t.id}`,
+        category: '表示',
+        title: `右のパネル: ${t.label}を表示`,
+        run: () => showRightTab(t.id),
+      })),
       {
         id: 'focus-explorer',
         category: '表示',
@@ -1712,6 +1762,9 @@ export function App() {
     openHelp,
     logSyncDiagnostics,
     setExcelMode,
+    setSidebarOpen,
+    setRightOpen,
+    showRightTab,
   ]);
   const commandsRef = useRef(commands);
   commandsRef.current = commands;
@@ -1842,14 +1895,11 @@ export function App() {
           <button
             title={`エクスプローラー (${key('ctrl+shift+e')})`}
             aria-label="エクスプローラー"
-            disabled={!project}
             // 表示中にもう一度押すとサイドバーを隠す（VS Code と同じ）
             onClick={() => setSidebarOpen((v) => !v)}
             className={clsx(
-              'flex h-12 items-center justify-center border-l-2 disabled:opacity-40',
-              sidebarOpen && project
-                ? 'border-fg-strong text-fg-strong'
-                : 'border-transparent text-faint hover:text-fg',
+              'flex h-12 items-center justify-center border-l-2',
+              sidebarOpen ? 'border-fg-strong text-fg-strong' : 'border-transparent text-faint hover:text-fg',
             )}
           >
             <Icon.Files size={24} />
@@ -1901,24 +1951,42 @@ export function App() {
           </button>
         </nav>
 
-        {/* サイドバー */}
-        {project && sidebarOpen && (
-          <aside className="w-[280px] shrink-0 border-r border-line">
-            <Sidebar
-              project={project}
-              selected={active && (active.kind === 'book' || active.kind === 'doc') ? active.id : null}
-              busy={busy !== null}
-              onOpen={onOpenTarget}
-              sync={syncReport?.books ?? {}}
-              onRefreshTree={() => onRefreshTree()}
-              onReload={() => withBusy('再読み込み中', async () => {})}
-              onCreateBook={onCreateBook}
-              onCreateAll={project.mode === 'vba' && project.modeSet ? undefined : () => void onCreateAll()}
-              onSettings={() => openSettings('bookRoot')}
-              focusNonce={explorerFocus}
-              vba={project.mode === 'vba' && project.modeSet}
+        {/* サイドバー（プロジェクトを開いていなければ「プロジェクトを開く」） */}
+        {sidebarOpen && (
+          <>
+            <aside className="shrink-0 border-r border-line" style={{ width: layout.sidebarWidth }}>
+              {project ? (
+                <Sidebar
+                  project={project}
+                  selected={active && (active.kind === 'book' || active.kind === 'doc') ? active.id : null}
+                  busy={busy !== null}
+                  onOpen={onOpenTarget}
+                  sync={syncReport?.books ?? {}}
+                  onRefreshTree={() => onRefreshTree()}
+                  onReload={() => withBusy('再読み込み中', async () => {})}
+                  onCreateBook={onCreateBook}
+                  onCreateAll={project.mode === 'vba' && project.modeSet ? undefined : () => void onCreateAll()}
+                  onSettings={() => openSettings('bookRoot')}
+                  focusNonce={explorerFocus}
+                  vba={project.mode === 'vba' && project.modeSet}
+                />
+              ) : (
+                <EmptySidebar
+                  recent={recent}
+                  onOpen={() => void pickProject()}
+                  onOpenRecent={(p) => void openProject(p)}
+                  platform={api.platform}
+                />
+              )}
+            </aside>
+            <Resizer
+              side="left"
+              width={layout.sidebarWidth}
+              label="サイドバーの幅"
+              onResize={(w) => setLayout((l) => ({ ...l, sidebarWidth: w }))}
+              onReset={() => setLayout((l) => ({ ...l, sidebarWidth: DEFAULT_LAYOUT.sidebarWidth }))}
             />
-          </aside>
+          </>
         )}
 
         {/* エディタ領域 */}
@@ -1933,6 +2001,24 @@ export function App() {
               onMove={(id, to) => setTabs((s) => moveTab(s, id, to))}
               onCloseOthers={(id) => setTabs((s) => closeOthers(s, id))}
               onCloseAll={() => setTabs((s) => closeAll(s))}
+              actions={
+                <>
+                  <IconButton
+                    title={`左のサイドバー${sidebarOpen ? 'を隠す' : 'を表示'} (${key('ctrl+b')})`}
+                    onClick={() => setSidebarOpen((v) => !v)}
+                    className={sidebarOpen ? 'text-fg' : 'text-faint'}
+                  >
+                    <Icon.PanelLeft size={15} />
+                  </IconButton>
+                  <IconButton
+                    title={`右のパネル${layout.rightOpen ? 'を隠す' : 'を表示'}（指示・内容・履歴） (${key('ctrl+alt+b')})`}
+                    onClick={() => setRightOpen((v) => !v)}
+                    className={layout.rightOpen ? 'text-fg' : 'text-faint'}
+                  >
+                    <Icon.PanelRight size={15} />
+                  </IconButton>
+                </>
+              }
             />
           )}
           <div className="min-h-0 flex-1">
@@ -2017,6 +2103,15 @@ export function App() {
                 }
                 onOpenDoc={(rel) => open('doc', rel)}
                 platform={api.platform}
+                selectedFile={selectedFiles[book.rel] ?? null}
+                onSelectFile={(name) =>
+                  setSelectedFiles((m) => {
+                    const next = { ...m };
+                    if (name) next[book.rel] = name;
+                    else delete next[book.rel];
+                    return next;
+                  })
+                }
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-muted">
@@ -2055,6 +2150,35 @@ export function App() {
             </div>
           )}
         </main>
+
+        {/* 右のサイドバー（指示・内容・履歴） */}
+        {layout.rightOpen && (
+          <>
+            <Resizer
+              side="right"
+              width={layout.rightWidth}
+              label="右のパネルの幅"
+              onResize={(w) => setLayout((l) => ({ ...l, rightWidth: w }))}
+              onReset={() => setLayout((l) => ({ ...l, rightWidth: DEFAULT_LAYOUT.rightWidth }))}
+            />
+            <aside
+              className="shrink-0 border-l border-line"
+              style={{ width: layout.rightWidth }}
+              aria-label="右のパネル"
+            >
+              <SecondarySidebar
+                tab={layout.rightTab}
+                onTab={showRightTab}
+                onClose={() => setRightOpen(false)}
+                root={project?.root ?? null}
+                book={book}
+                projectMode={project?.mode ?? 'source'}
+                selectedFile={book ? (selectedFiles[book.rel] ?? null) : null}
+                onLog={log}
+              />
+            </aside>
+          </>
+        )}
       </div>
 
       <StatusBar

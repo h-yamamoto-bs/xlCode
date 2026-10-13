@@ -153,3 +153,18 @@ describe('あいまい検索', () => {
     expect(splitHighlights('abc', [])).toEqual(['abc']);
   });
 });
+
+describe('右のパネル', () => {
+  it('指示のテンプレートに、選んでいるファイル名と衝突シートを埋める', async () => {
+    const { fillPrompt, PROMPT_GROUPS } = await import('../src/renderer/src/prompts');
+    expect(fillPrompt('{file} を {conflict} に', { file: 'App.tsx', conflict: '#conflict_02' })).toBe(
+      'App.tsx を #conflict_02 に',
+    );
+    expect(fillPrompt('{file} / {newfile} / {conflict}', {})).toBe(
+      '（ファイル名） / （新しいファイル名） / #conflict_01',
+    );
+    const ids = PROMPT_GROUPS.flatMap((g) => g.items.map((i) => i.id));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(PROMPT_GROUPS.flatMap((g) => g.items).some((i) => i.mode === 'vba')).toBe(true);
+  });
+});

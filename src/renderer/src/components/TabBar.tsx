@@ -34,7 +34,10 @@ export function TabBar({
   onMove,
   onCloseOthers,
   onCloseAll,
+  actions,
 }: {
+  /** 右端に出すボタン（サイドバーの切り替えなど） */
+  actions?: ReactNode;
   tabs: TabView[];
   active: string | null;
   onActivate: (id: string) => void;
@@ -154,6 +157,7 @@ export function TabBar({
           }}
         />
       </div>
+      {actions && <div className="flex shrink-0 items-center gap-0.5 border-b border-line px-1">{actions}</div>}
       {menu && (
         <ul
           role="menu"

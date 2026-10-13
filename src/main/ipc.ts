@@ -8,6 +8,8 @@ import {
   LOCAL_AGENTS_SHEET,
   bookDiff,
   bookStatus,
+  fileContents,
+  recentCommits,
   build,
   checkBookOpen,
   computeTree,
@@ -294,6 +296,12 @@ export function registerIpc(): void {
   );
   ipcMain.handle('bookDiff', (_e, root: string, book: string) =>
     wrap(async () => bookDiff(root, await bookAbsOf(root, book))),
+  );
+  ipcMain.handle('fileContents', (_e, root: string, book: string, name: string) =>
+    wrap(async () => fileContents(root, await bookAbsOf(root, book), name)),
+  );
+  ipcMain.handle('recentCommits', (_e, root: string, dirRel: string) =>
+    wrap(() => recentCommits(root, toPosixRel(root, inside(root, dirRel)))),
   );
   ipcMain.handle('undoLast', (_e, root: string, book: string) =>
     wrap(async () => undoLast(root, bookRef(root, await bookAbsOf(root, book), await bookRootFor(root)))),

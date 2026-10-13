@@ -658,3 +658,58 @@ describe('ブック作成前の除外の確認', () => {
     await win.getByRole('button', { name: 'キャンセル' }).click();
   });
 });
+
+describe('左右のサイドバー', () => {
+  it('プロジェクトを開いていないときは、サイドバーが「プロジェクトを開く」になる', async () => {
+    const f = await project();
+    running = await launch(f.root, 'both', {}, { openProject: false });
+    const { win } = running;
+    const side = win.getByRole('complementary').first();
+    await win.getByRole('button', { name: 'プロジェクトを開く', exact: true }).first().waitFor();
+    // 最近使用したプロジェクトからも開ける（サイドバー側のボタン）
+    await expect(side.getByText('最近使用したプロジェクト').count()).resolves.toBeGreaterThan(0);
+    // 左のサイドバーはプロジェクトを開く前でも Ctrl+B で開閉できる
+    await win.keyboard.press('Control+b');
+    await expect(win.getByRole('button', { name: 'プロジェクトを開く', exact: true }).count()).resolves.toBe(1);
+    await win.keyboard.press('Control+b');
+    await win.getByRole('button', { name: 'プロジェクトを開く', exact: true }).first().waitFor();
+  });
+
+  it('タブバーのボタンで左右を開閉し、右のパネルに指示・内容・履歴が出る', async () => {
+    const f = await project();
+    await f.editBook(APP_BOOK, (b) => b.writeLines('util.ts', ['export const one = 1;', 'export const two = 2;']));
+    running = await launch(f.root);
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    await win.getByRole('button', { name: /^左のサイドバーを隠す/ }).click();
+    await expect(win.getByRole('tree', { name: 'ブック', exact: true }).count()).resolves.toBe(0);
+    await win.getByRole('button', { name: /^左のサイドバーを表示/ }).click();
+    await win.getByRole('tree', { name: 'ブック', exact: true }).waitFor();
+
+    // 右のパネル: 指示のテンプレート
+    await win.keyboard.press('Control+Alt+b');
+    const right = win.getByRole('complementary', { name: '右のパネル' });
+    await right.waitFor();
+    await right.getByText('ルールを読ませる').waitFor();
+    // ファイルを選ぶと、指示にファイル名が入り、「内容」でシートとファイルの中身が見える
+    await win
+      .getByRole('row', { name: /util\.ts/ })
+      .first()
+      .click();
+    await right.getByText('ファイル名は').waitFor();
+    await expect(right.getByText('util.ts', { exact: true }).first().isVisible()).resolves.toBe(true);
+    await right.getByRole('tab', { name: '内容' }).click();
+    const sheet = right.getByLabel('util.ts のExcel 側の内容');
+    await sheet.waitFor();
+    await expect(sheet.innerText()).resolves.toContain('export const two = 2;');
+    await right.getByRole('tab', { name: 'ソース側' }).click();
+    const src = right.getByLabel('util.ts のソース側の内容');
+    await expect(src.innerText()).resolves.not.toContain('export const two = 2;');
+    // 履歴: setup のコミットが出る
+    await right.getByRole('tab', { name: '履歴' }).click();
+    await right.getByText('setup', { exact: true }).waitFor();
+    // 閉じる
+    await right.getByRole('button', { name: /右のパネルを閉じる/ }).click();
+    await expect(right.count()).resolves.toBe(0);
+  });
+});

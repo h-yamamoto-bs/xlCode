@@ -100,3 +100,31 @@ export async function gitSummary(root: string): Promise<GitSummary> {
   const out = await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
   return { repo: true, branch, changes: parseStatusZ(out) };
 }
+
+export interface CommitInfo {
+  hash: string;
+  /** ISO 8601 */
+  date: string;
+  subject: string;
+  /** xlCode の自動コミットか */
+  auto: boolean;
+}
+
+/** 対象ディレクトリ直下に関わる最近のコミット（右のパネルの「履歴」用）。Git でなければ空 */
+export async function recentCommits(root: string, dirRel: string, limit = 30): Promise<CommitInfo[]> {
+  if (!(await isGitRepo(root))) return [];
+  const out = await git(root, [
+    'log',
+    `-n${limit}`,
+    '--format=%h%x1f%cI%x1f%s',
+    '--',
+    ...dirPathspec(dirRel),
+  ]).catch(() => '');
+  return out
+    .split('\n')
+    .filter((l) => l.includes('\x1f'))
+    .map((l) => {
+      const [hash, date, subject] = l.split('\x1f');
+      return { hash, date, subject, auto: subject.startsWith('xlcode: ') };
+    });
+}

@@ -225,6 +225,18 @@ export const Icon = {
       <path d="M6.6 6.7A2 2 0 0 0 9.3 9.4M4.3 4.4C2.8 5.3 1.8 6.6 1.5 8c1 2.7 3.5 4.5 6.5 4.5 1.2 0 2.3-.3 3.3-.8M7 3.6c.3 0 .7-.1 1-.1 3 0 5.5 1.8 6.5 4.5-.4 1-1 1.9-1.8 2.6" />
     </Svg>
   ),
+  PanelLeft: (p: P) => (
+    <Svg {...p}>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="1" />
+      <path d="M5.5 2.5v11M3 5h1M3 7h1M3 9h1" />
+    </Svg>
+  ),
+  PanelRight: (p: P) => (
+    <Svg {...p}>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="1" />
+      <path d="M10.5 2.5v11M12 5h1M12 7h1M12 9h1" />
+    </Svg>
+  ),
   Layout: (p: P) => (
     <Svg {...p}>
       <rect x="1.5" y="2.5" width="13" height="11" rx="1" />

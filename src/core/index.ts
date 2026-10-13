@@ -3,7 +3,7 @@ export { DEFAULT_CONFIG, loadConfig, saveConfig, type XlcodeConfig } from './con
 export { build, sync, type BuildOptions, type SyncOptions } from './ops';
 export { refreshTree, checkTree, computeTree, type RefreshResult, type BookTreeResult, type TreeCheck } from './tree';
 export { initProject, createBook, type CreateBookResult } from './init';
-export { bookStatus, bookDiff, type BookStatus, type FileDiff } from './status';
+export { bookStatus, bookDiff, fileContents, type BookStatus, type FileDiff, type FileContents } from './status';
 export { undoLast, undoInfo, type UndoInfo, type UndoResult } from './undo';
 export type { DiffLine, Hunk } from './diff';
 export { checkBookOpen } from './lock';
@@ -20,7 +20,7 @@ export {
 export { isCodeName } from './sheetName';
 export type { OpResult, OpStatus, Confirmation, Change } from './result';
 export type { FileStatus } from './scan';
-export { gitSummary, type GitSummary } from './git';
+export { gitSummary, recentCommits, type CommitInfo, type GitSummary } from './git';
 export { bookRef } from './project';
 export { relocateBooks, validateBookRoot, type RelocateOptions, type RelocateResult } from './relocate';
 export { bookPathFor, bookRootOf, resolveBook } from './project';

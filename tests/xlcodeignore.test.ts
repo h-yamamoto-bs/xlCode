@@ -147,3 +147,46 @@ describe('ブック作成前の確認用の情報', () => {
     expect(sub).toEqual({ sheets: ['c.ts'], ignored: ['c.min.js'], nonCode: [] });
   });
 });
+
+describe('右のパネル用の読み取り', () => {
+  it('ファイルの Excel 側とソース側の内容を、整形せずにそのまま返す', async () => {
+    const { fileContents } = await import('../src/core');
+    const f = await fixture({ 'app/a.ts': 'const a = 1;\r\nconst b = 2;\r\n' });
+    await initProject(f.root);
+    await createBook(f.root, f.file('app'));
+    await f.editBook('app/app.xlcode.xlsx', (b) => b.writeLines('new.ts', ['export {};']));
+    const a = await fileContents(f.root, f.file('app/app.xlcode.xlsx'), 'a.ts');
+    expect(a.source).toEqual(['const a = 1;', 'const b = 2;']);
+    expect(a.sheet).toEqual(['const a = 1;', 'const b = 2;']);
+    expect(a.format).toContain('CRLF');
+    const n = await fileContents(f.root, f.file('app/app.xlcode.xlsx'), 'new.ts');
+    expect(n.sheet).toEqual(['export {};']);
+    expect(n.source).toBeNull();
+    const none = await fileContents(f.root, f.file('app/app.xlcode.xlsx'), 'missing.ts');
+    expect(none.sheet).toBeNull();
+    expect(none.source).toBeNull();
+    await expect(fileContents(f.root, f.file('app/app.xlcode.xlsx'), '../x')).rejects.toThrow(/不正/);
+  });
+
+  it('ブックのフォルダに関わる最近のコミットを、自動コミットの印つきで返す', async () => {
+    const { build, recentCommits } = await import('../src/core');
+    const f = await fixture({ 'app/a.ts': 'x\n', 'lib/b.ts': 'y\n' }, { git: true });
+    await initProject(f.root);
+    await createBook(f.root, f.file('app'));
+    f.git('add', '-A');
+    f.git('commit', '-q', '-m', 'setup');
+    // Excel 側の変更と、未コミットの新しいファイル（Build 前の自動コミットの対象）
+    await f.editBook('app/app.xlcode.xlsx', (b) => b.writeLines('a.ts', ['changed']));
+    await f.write('app/c.ts', 'z\n');
+    const r = await build(f.root, f.file('app/app.xlcode.xlsx'), { confirmed: true });
+    expect(r.status).toBe('ok');
+    const log = await recentCommits(f.root, 'app');
+    expect(log[0].subject).toMatch(/^xlcode: Build 前の自動コミット/);
+    expect(log[0].auto).toBe(true);
+    expect(log.map((c) => c.subject)).toContain('setup');
+    expect(log.every((c) => /^[0-9a-f]{7,}$/.test(c.hash) && !isNaN(Date.parse(c.date)))).toBe(true);
+    // Git でなければ空
+    const g = await fixture({ 'a.ts': 'x\n' });
+    expect(await recentCommits(g.root, '')).toEqual([]);
+  });
+});

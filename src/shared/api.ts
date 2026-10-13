@@ -1,8 +1,10 @@
 import type {
   BookStatus,
   BuildOptions,
+  CommitInfo,
   CreateBookResult,
   DirFilesPreview,
+  FileContents,
   FileDiff,
   GitSummary,
   OpResult,
@@ -113,6 +115,10 @@ export interface XlcodeApi {
   openInExcel(root: string, bookRel: string, via: OpenVia): Promise<Result<string | null>>;
   /** 変更のあるファイルごとの差分（変更を確認する用） */
   bookDiff(root: string, bookRel: string): Promise<Result<FileDiff[]>>;
+  /** 1 ファイルの Excel 側とソース側の内容（右のパネルの「内容」用） */
+  fileContents(root: string, bookRel: string, name: string): Promise<Result<FileContents>>;
+  /** ブックのフォルダに関わる最近のコミット（右のパネルの「履歴」用） */
+  recentCommits(root: string, dirRel: string): Promise<Result<CommitInfo[]>>;
   /** 直前の Build / Sync を元に戻す */
   undoLast(root: string, bookRel: string): Promise<Result<UndoResult>>;
   /** 各ブックがデスクトップ版 Excel で開かれているか（ポーリング用） */
