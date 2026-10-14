@@ -23,7 +23,7 @@ cd xlCode
    certutil -hashfile release\installer\xlCode-Setup-1.7.1.exe SHA256
    ```
 
-   `a987cdb333c52e4d6f5f58e339ffa47c1e09532ae58c258287e683d66a111ad8` と一致すれば OK
+   `67fc7800a2573e8eefbf9dea039369970a7ec3807716115fd81ce921b7ad5457` と一致すれば OK
 3. `xlCode-Setup-1.7.1.exe` を実行し、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
    - SmartScreen の警告が出たら「詳細情報 → 実行」（署名がないため）
    - 会社の AppLocker などで起動できない場合は「すべてのユーザー」（Program Files）で試す
@@ -40,7 +40,7 @@ cd xlCode
    certutil -hashfile release\xlCode-src-win.zip SHA256
    ```
 
-   `46dc76e6a58274ea7a4c49529d9ac922914316ea65ecd7daaefd3337b300537c` と一致すれば OK
+   `3e2c8f5ec79de06e7c52c0dc58060d48a5576ca703e0d21fdf22b6b6786f40d8` と一致すれば OK
 4. 展開する。エクスプローラーの展開は遅く、長いパスで失敗しやすいので `tar` を使う
 
    ```bat
