@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import type { CommitInfo } from '../../../core';
 import type { BookSummary, BookSync, ProjectInfo } from '../../../shared/api';
 import { buildDirTree, countItems, type DirNode } from '../dirTree';
+import { parseFileRef } from '../tabs';
 import { EXCEL_SIDE, SOURCE_SIDE, STATUS, SYNC_META } from '../status';
 import { Icon } from './Icons';
 import { IconButton, Section } from './ui';
@@ -100,6 +101,30 @@ export function Sidebar({
   const toggle = (key: string, def: boolean) => setExpanded((e) => ({ ...e, [key]: !(e[key] ?? def) }));
   const setOpen = (key: string, open: boolean) => setExpanded((e) => ({ ...e, [key]: open }));
 
+  // 表示中のタブに対応する行（book:… / doc:… はそのまま。file:ブック|名前 はシートの行）と、その行が入っているブック
+  const { selectedKey, selectedBook } = useMemo(() => {
+    if (!selected) return { selectedKey: null, selectedBook: null };
+    if (selected.startsWith('file:')) {
+      const { book, name } = parseFileRef(selected.slice('file:'.length));
+      return { selectedKey: `sheet:${book}:${name}`, selectedBook: `book:${book}` };
+    }
+    if (selected.startsWith('doc:')) {
+      // LocalAgents.md などブックの中のシートでもあるドキュメントは、そのブックを開いておく
+      const rel = selected.slice('doc:'.length);
+      const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
+      const owner = project.books.find(
+        (b) => b.dirRel === dir && (b.files ?? []).some((f) => f.name === rel.split('/').pop()),
+      );
+      return { selectedKey: selected, selectedBook: owner ? `book:${owner.rel}` : null };
+    }
+    return { selectedKey: selected, selectedBook: selected.startsWith('book:') ? selected : null };
+  }, [selected, project.books]);
+  // 選んだブック（または選んだファイルのブック）は開いたままにする。閉じるのは利用者が矢印を押したときだけ
+  useEffect(() => {
+    if (!selectedBook) return;
+    setExpanded((e) => (e[selectedBook] ? e : { ...e, [selectedBook]: true }));
+  }, [selectedBook]);
+
   const items = useMemo<Item[]>(() => {
     const docs = new Set(project.docs);
     const out: Item[] = [
@@ -155,7 +180,7 @@ export function Sidebar({
       for (const it of node.items) {
         if (it.kind === 'book') {
           const key = `book:${it.book.rel}`;
-          const open = expanded[key] ?? key === selected;
+          const open = expanded[key] ?? key === selectedBook;
           rows.push({ key, depth, parent, collapsible: true, open, node: { type: 'book', book: it.book } });
           if (open) {
             for (const f of it.book.files ?? []) {
@@ -183,7 +208,7 @@ export function Sidebar({
     };
     walk(bookTree, 0, null);
     return rows;
-  }, [bookTree, expanded, selected]);
+  }, [bookTree, expanded, selectedBook]);
 
   const dirRows = useMemo(() => {
     const rows: Row[] = [];
@@ -295,14 +320,14 @@ export function Sidebar({
           ref={booksTree}
           label="ブック"
           rows={bookRows}
-          selected={selected}
+          selected={selectedKey}
           setOpen={setOpen}
           activate={activate}
           render={(row) => (
             <TreeRow
               row={row}
               treeVersion={project.treeVersion}
-              selected={row.key === selected}
+              selected={row.key === selectedKey}
               sync={row.node.type === 'book' ? sync[row.node.book.rel] : undefined}
               onToggle={() => toggle(row.key, row.node.type === 'dir')}
             />
@@ -736,7 +761,10 @@ function TreeRow({
     const m = STATUS[n.file.status];
     return (
       <div
-        className="flex h-[22px] cursor-pointer items-center gap-1.5 pr-3 hover:bg-hover"
+        className={clsx(
+          'flex h-[22px] cursor-pointer items-center gap-1.5 pr-3',
+          selected ? 'bg-focus' : 'hover:bg-hover',
+        )}
         style={{ paddingLeft: 8 + row.depth * INDENT + 18 }}
         title={m.hint ? `${m.label} — ${m.hint}` : m.label}
       >

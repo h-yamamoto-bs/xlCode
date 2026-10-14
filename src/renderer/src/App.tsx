@@ -2045,7 +2045,11 @@ export function App() {
               {project ? (
                 <Sidebar
                   project={project}
-                  selected={active && (active.kind === 'book' || active.kind === 'doc') ? active.id : null}
+                  selected={
+                    active && (active.kind === 'book' || active.kind === 'doc' || active.kind === 'file')
+                      ? active.id
+                      : null
+                  }
                   busy={busy !== null}
                   onOpen={onOpenTarget}
                   sync={syncReport?.books ?? {}}

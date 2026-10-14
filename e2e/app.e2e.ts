@@ -746,10 +746,21 @@ describe('コードの閲覧', () => {
     await win.getByRole('treeitem', { name: 'util.ts', exact: true }).click();
     const tabs = win.getByRole('tablist', { name: '開いているタブ' });
     await tabs.getByRole('tab', { name: /util\.ts/ }).waitFor();
+    // 開いていた階層（ブックのシート一覧）は閉じず、選んだシートの行が選択される
+    await expect(
+      win.getByRole('treeitem', { name: 'util.ts', exact: true }).getAttribute('aria-selected'),
+    ).resolves.toBe('true');
+    await expect(win.getByRole('treeitem', { name: 'App.tsx', exact: true }).count()).resolves.toBe(1);
+    // LocalAgents.md（ブックの中のシート）を開いても同じ
+    await win.getByRole('treeitem', { name: 'app/LocalAgents.md', exact: true }).click();
+    await win.getByRole('textbox', { name: 'app/LocalAgents.md' }).waitFor();
+    await expect(win.getByRole('treeitem', { name: 'App.tsx', exact: true }).count()).resolves.toBe(1);
+    await win.getByRole('treeitem', { name: 'util.ts', exact: true }).click();
     // 既定はソース側。Excel 側に切り替えると Copilot の変更が見える
     const src = win.getByLabel('util.ts のソース側の内容');
     await src.waitFor();
-    await expect(src.innerText()).resolves.toContain('export const one = 1;');
+    // 内容は読み込みが終わってから出る
+    await expect.poll(() => src.innerText()).toContain('export const one = 1;');
     await expect(src.innerText()).resolves.not.toContain('two');
     await win.getByRole('tab', { name: 'Excel 側' }).click();
     await expect(win.getByLabel('util.ts のExcel 側の内容').innerText()).resolves.toContain('export const two = 2;');
