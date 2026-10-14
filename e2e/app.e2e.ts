@@ -768,3 +768,41 @@ describe('コードの閲覧', () => {
     await win.getByRole('textbox', { name: 'app/LocalAgents.md' }).waitFor();
   });
 });
+
+describe('ドキュメントの編集の細かい動き', () => {
+  it('開いただけ（1 文字も入力していない）なら、閉じるときに保存を聞かない', async () => {
+    const { fixture } = await import('../tests/helpers');
+    // .xlcodeignore が無い古いプロジェクト
+    const f = await fixture(
+      { 'a.ts': 'export {};\n', 'Agents.md': '# Agents.md\r\n\r\n- CRLF のルール\r\n' },
+      { git: true },
+    );
+    running = await launch(f.root);
+    const { win } = running;
+    const tabs = win.getByRole('tablist', { name: '開いているタブ' });
+    // 雛形を見せている .xlcodeignore
+    await win.getByRole('treeitem', { name: '.xlcodeignore', exact: true }).click();
+    const ign = win.getByRole('textbox', { name: '.xlcodeignore' });
+    await expect(ign.inputValue()).resolves.toContain('.gitignore と同じ書き方');
+    await expect(win.getByRole('button', { name: '保存', exact: true }).isEnabled()).resolves.toBe(true);
+    await win.keyboard.press('Control+w');
+    await expect(win.getByRole('dialog').count()).resolves.toBe(0);
+    await expect(tabs.getByRole('tab', { name: '.xlcodeignore' }).count()).resolves.toBe(0);
+    // 既存の Agents.md（CRLF）も同じ。1 文字直して保存すると CRLF のまま
+    await win.getByRole('treeitem', { name: 'Agents.md', exact: true }).click();
+    const editor = win.getByRole('textbox', { name: 'Agents.md' });
+    await editor.waitFor();
+    await expect(win.getByRole('button', { name: '保存', exact: true }).isEnabled()).resolves.toBe(false);
+    await win.keyboard.press('Control+w');
+    await expect(win.getByRole('dialog').count()).resolves.toBe(0);
+    await win.getByRole('treeitem', { name: 'Agents.md', exact: true }).click();
+    await editor.click();
+    await editor.press('Control+End');
+    await editor.pressSequentially('- 追加');
+    await editor.press('Control+s');
+    await waitLog(win, '保存しました: Agents.md');
+    const { readFile } = await import('node:fs/promises');
+    const raw = (await readFile(f.file('Agents.md'))).toString('utf8');
+    expect(raw).toBe('# Agents.md\r\n\r\n- CRLF のルール\r\n- 追加');
+  });
+});

@@ -46,9 +46,15 @@ export function DocEditor({
   onError: (msg: string) => void;
   onHelp?: (anchor: string) => void;
 }) {
-  // null = 読み込み中
+  // null = 読み込み中。画面では LF で扱い、保存時に元の改行（CRLF / LF）へ戻す
   const [saved, setSaved] = useState<string | null>(null);
   const [exists, setExists] = useState(true);
+  const [eol, setEol] = useState<'\n' | '\r\n'>('\n');
+  const load = (raw: string | null) => {
+    setSaved(raw === null ? '' : raw.replace(/\r\n/g, '\n'));
+    setExists(raw !== null);
+    if (raw !== null) setEol(raw.includes('\r\n') ? '\r\n' : '\n');
+  };
   const gutter = useRef<HTMLDivElement>(null);
   const area = useRef<HTMLTextAreaElement>(null);
   const kind = docKind(rel);
@@ -56,33 +62,28 @@ export function DocEditor({
 
   useEffect(() => {
     unwrap(api.readDoc(root, rel))
-      .then((t) => {
-        setSaved(t ?? '');
-        setExists(t !== null);
-        // .xlcodeignore がまだ無ければ、書き方の雛形を入れておく（保存すると作られる）
-        if (t === null && docKind(rel) === 'ignore' && !draft) onDraft(rel, { text: IGNORE_TEMPLATE, base: '' });
-      })
+      .then(load)
       .catch((e: Error) => onError(e.message));
-    // draft / onDraft は初回の読み込みだけに使う
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root, rel, onError]);
 
   // ウィンドウに戻ったとき（エディタで編集した後など）にディスクの内容を読み直す
   useEffect(() => {
     const onFocus = () => {
       void api.readDoc(root, rel).then((r) => {
-        if (r.ok) {
-          setSaved(r.value ?? '');
-          setExists(r.value !== null);
-        }
+        if (r.ok) load(r.value);
       });
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [root, rel]);
 
-  const text = draft?.text ?? saved ?? '';
+  // .xlcodeignore がまだ無ければ雛形を見せる。見せているだけで、入力するまでは「編集中」にしない
+  // （間違えて開いただけで保存を聞かれないように）
+  const starter = !exists && kind === 'ignore' ? IGNORE_TEMPLATE : '';
+  const text = draft?.text ?? (saved === null ? '' : saved || starter);
   const dirty = draft !== undefined;
+  // 雛形を見せているときは、編集していなくても保存で作れる
+  const canSave = dirty || (!exists && starter !== '');
   // 下書きを始めた後に、エディタなど別の場所でファイルが変更された
   const changedOnDisk = draft !== undefined && saved !== null && draft.base !== saved;
 
@@ -92,9 +93,9 @@ export function DocEditor({
     else onDraft(rel, { text: next, base: draft?.base ?? saved });
   };
   const save = async () => {
-    if (!dirty) return;
+    if (!canSave) return;
     try {
-      await unwrap(api.writeDoc(root, rel, text));
+      await unwrap(api.writeDoc(root, rel, eol === '\n' ? text : text.replace(/\n/g, '\r\n')));
       setSaved(text);
       setExists(true);
       onDraft(rel, null);
@@ -125,7 +126,7 @@ export function DocEditor({
             lines > LINE_LIMIT &&
             `（目安 ${LINE_LIMIT} 行を超えています。厚すぎると Copilot が生成を停止することがあります）`}
         </span>
-        <Button variant="primary" className="ml-auto" onClick={save} disabled={!dirty} title="保存 (Ctrl+S)">
+        <Button variant="primary" className="ml-auto" onClick={save} disabled={!canSave} title="保存 (Ctrl+S)">
           <Icon.Save size={14} />
           保存
         </Button>
