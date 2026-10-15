@@ -319,6 +319,14 @@ const ITEMS = [
   { id: 'X-3', cat: 'misc', pri: 'mid', tag: 'base', title: 'ウィンドウに戻ったときの再読み込み', steps: 'VS Code でファイルを直してから xlCode に戻る', expect: '状態（S）が自動で更新される' },
   { id: 'X-4', cat: 'misc', pri: 'low', tag: 'base', title: 'Git for Windows の自動コミット', steps: 'Build', expect: '「xlcode: Build 前の自動コミット」が作られる。日本語のファイル名がエスケープされない' },
   { id: 'X-5', cat: 'misc', pri: 'low', tag: 'base', title: 'ウイルス対策ソフトによる一時ファイルの掴み', steps: 'Build / Sync を繰り返す', expect: '「~$xlcode-*.tmp」の rename が失敗しない（失敗したら EPERM 等を記録）' },
+  // OneDrive から最新を取り直す（再読み込み）
+  { id: 'D-9', cat: 'onedrive', pri: 'high', tag: 'new', title: 'F5（再読み込み）で Web 版の変更が届く', steps: 'ブックを Excel で開いていない状態で、Web 版（ブラウザ）で Copilot にシートを書かせて閉じる → xlCode で F5', expect: '「OneDrive から最新を取得: 更新 1 …」が出力に出て、ブックに E（Excel 側で編集）のしるしが付く。Build でその内容がファイルになる' },
+  { id: 'D-10', cat: 'onedrive', pri: 'high', tag: 'new', title: 'F5 のあとブックが「オンラインのみ」のままにならない', steps: 'D-9 のあとエクスプローラーでブックのアイコンを見る', expect: '緑のチェック（または白のチェック）で、雲（オンラインのみ）になっていない。「常に保持する」にしていたブックはその設定のまま' },
+  { id: 'D-11', cat: 'onedrive', pri: 'high', tag: 'new', title: 'Excel で開いているブック・アップロード待ちのブックには触らない', steps: 'デスクトップ版 Excel でブックを開いたまま F5。別に、Build 直後（アップロード待ち）に F5', expect: '出力に「Excel で開かれています」「同期の途中」でスキップと出る。Excel 側でエラーにならない' },
+  { id: 'D-12', cat: 'onedrive', pri: 'mid', tag: 'new', title: 'ファイル オンデマンドを無効にした場合', steps: 'OneDrive の設定でファイル オンデマンドを無効にして F5', expect: '「OneDrive がローカルの中身を捨ててくれませんでした」でスキップし、ブックは壊れない。15 秒ほどで戻る' },
+  { id: 'D-13', cat: 'onedrive', pri: 'mid', tag: 'new', title: 'OneDrive が一時停止・未起動のときの F5', steps: 'OneDrive を一時停止 / 終了して F5', expect: '一時停止: 「同期の途中」でスキップ。未起動: 「OneDrive が起動していません」で何もしない。どちらもブックはそのまま' },
+  { id: 'D-14', cat: 'onedrive', pri: 'low', tag: 'new', title: 'F5 にかかる時間', steps: 'ブック 3 冊のプロジェクトで F5', expect: '数秒〜30 秒程度。「OneDrive から最新を取得中」の表示が出る。1 分を超えるなら記録する' },
+  { id: 'T-13', cat: 'tabs', pri: 'mid', tag: 'new', title: 'Ctrl+F の検索（日本語・IME）', steps: '閲覧タブで Ctrl+F → IME をオンにして日本語を入力・確定 → Enter', expect: '変換の確定の Enter で次に飛ばない。確定後の Enter で次へ。件数が「1 / N」で出て、該当行が見える位置に動く' },
   // ブックのテーマ・表示モード
   { id: 'H-1', cat: 'theme', pri: 'high', tag: 'new', title: 'ダークのブックを Excel（デスクトップ）が修復なしで開く', steps: '設定のブックのテーマを「ダーク（固定）」にして新しいブックを作成 → デスクトップ版 Excel で開く', expect: '「修復しますか」が出ない。シートの背景が黒に近い色（1E1E1E）、文字が明るいグレー、フォントが Consolas で、枠線（グリッド線）が見えない。タブは青（コード）・グレー（Agents.md / #tree）' },
   { id: 'H-2', cat: 'theme', pri: 'high', tag: 'new', title: 'ライトのブックを Excel が修復なしで開く', steps: 'ブックのテーマを「ライト（固定）」にして新しいブックを作成 → 開く', expect: '「修復しますか」が出ない。白い背景・黒い文字で、枠線が見えない。タブは青（コード）・グレー' },

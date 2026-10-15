@@ -54,6 +54,20 @@ export interface SyncReport {
   books: Record<string, BookSync>;
 }
 
+/** OneDrive から最新を取り直した結果（ブックごと） */
+export interface FetchOutcome {
+  /** updated: 内容が変わった / unchanged: 取り直したが同じ / skipped: 触らなかった / failed: 失敗 */
+  result: 'updated' | 'unchanged' | 'skipped' | 'failed';
+  reason?: string;
+  /** 診断用の生の値 */
+  detail?: string;
+}
+
+export interface FetchReport {
+  oneDriveRunning: boolean | null;
+  books: Record<string, FetchOutcome>;
+}
+
 export interface BookSummary extends Partial<BookStatus> {
   /** ルートからの相対パス */
   rel: string;
@@ -141,6 +155,8 @@ export interface XlcodeApi {
   syncStatus(root: string, bookRels: string[]): Promise<Result<SyncReport>>;
   /** ブックの更新日時とサイズ */
   bookStamp(root: string, bookRel: string): Promise<Result<string>>;
+  /** OneDrive から各ブックの最新を取り直し、同期が落ち着くまで待つ（Windows のみ。他では skipped） */
+  fetchLatest(root: string, bookRels: string[]): Promise<Result<FetchReport>>;
   readConfig(root: string): Promise<Result<XlcodeConfig>>;
   writeConfig(root: string, config: XlcodeConfig): Promise<Result<void>>;
   openTerminal(root: string, dirRel: string): Promise<Result<void>>;

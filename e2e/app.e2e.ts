@@ -899,3 +899,73 @@ describe('表示モードとブックのテーマ', () => {
     expect(await f.sheet(APP_BOOK, 'made-by-copilot.ts')).toEqual(['export {};']);
   });
 });
+
+describe('ファイル内の検索と再読み込み', () => {
+  it('Ctrl+F で閲覧タブの中を検索し、Enter で次へ移る', async () => {
+    const f = await project();
+    await f.write('app/util.ts', ['export const one = 1;', 'export const two = 2;', '// one more ONE', ''].join('\n'));
+    running = await launch(f.root);
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    await win.getByRole('treeitem', { name: 'util.ts', exact: true }).click();
+    const src = win.getByLabel('util.ts のソース側の内容');
+    await expect.poll(() => src.innerText()).toContain('one more');
+    // Ctrl+F で検索欄が開き、入力に移る
+    await win.keyboard.press('Control+f');
+    const box = win.getByRole('textbox', { name: '検索する文字' });
+    await expect.poll(() => box.evaluate((el) => el === document.activeElement)).toBe(true);
+    await box.pressSequentially('one');
+    const count = win.getByTestId('find-count');
+    await expect.poll(() => count.innerText()).toBe('1 / 3');
+    await expect(src.locator('mark').count()).resolves.toBe(3);
+    await expect(src.locator('mark[data-current]').innerText()).resolves.toBe('one');
+    await box.press('Enter');
+    await expect.poll(() => count.innerText()).toBe('2 / 3');
+    await box.press('Enter');
+    await box.press('Enter');
+    await expect.poll(() => count.innerText()).toBe('1 / 3');
+    await box.press('Shift+Enter');
+    await expect.poll(() => count.innerText()).toBe('3 / 3');
+    // 大文字小文字を区別する
+    await win.getByRole('button', { name: '大文字と小文字を区別する' }).click();
+    await expect.poll(() => count.innerText()).toBe('1 / 2');
+    await box.fill('nothing-here');
+    await expect.poll(() => count.innerText()).toBe('該当なし');
+    // Escape で閉じ、ツールバーの「検索」でまた開く
+    await box.press('Escape');
+    await expect(box.count()).resolves.toBe(0);
+    await win.getByRole('button', { name: '検索', exact: true }).click();
+    await box.waitFor();
+    // コマンドパレットにも出る
+    await box.press('Escape');
+    await win.keyboard.press('Control+Shift+p');
+    const cmd = win.getByRole('dialog', { name: 'コマンドパレット' });
+    await cmd.getByRole('option', { name: /ファイル内を検索/ }).waitFor();
+    await win.keyboard.press('Escape');
+  });
+
+  it('F5 の再読み込みは状態を読み直す（OneDrive からの取得は Windows でだけ）', async () => {
+    const f = await project();
+    running = await launch(f.root);
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    // 外でソースを変えてから F5
+    await f.write('app/util.ts', 'export const one = 11;\n');
+    await win.keyboard.press('F5');
+    await expect
+      .poll(() => win.getByRole('treeitem', { name: 'util.ts', exact: true }).getAttribute('aria-label'))
+      .toBeTruthy();
+    await expect
+      .poll(async () =>
+        (
+          await win
+            .getByRole('row', { name: /util\.ts/ })
+            .first()
+            .innerText()
+        ).includes('S'),
+      )
+      .toBe(true);
+    // Linux では OneDrive の取得は行わないので、出力には何も出ない
+    await expect(win.getByText('OneDrive から最新を取得', { exact: false }).count()).resolves.toBe(0);
+  });
+});

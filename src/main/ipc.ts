@@ -46,7 +46,7 @@ import {
 import { atomicWrite } from '../core/atomic';
 import { excelPathError, toPosixRel } from '../core/fsutil';
 import { exists } from '../core/project';
-import type { AppThemeSetting, BookSummary, OpenVia, OpenWith, ProjectInfo, Result } from '../shared/api';
+import type { AppThemeSetting, BookSummary, FetchReport, OpenVia, OpenWith, ProjectInfo, Result } from '../shared/api';
 import {
   findRoot,
   isPersonalUrl,
@@ -58,6 +58,7 @@ import {
 } from './onedrive';
 import { resolvePersonalUrl } from './onedriveItem';
 import { runImportJob, runVbaJob } from './excelCom';
+import { fetchLatest } from './onedriveFetch';
 import { bookStamp, querySyncStatus } from './syncStatus';
 
 async function wrap<T>(fn: () => Promise<T>): Promise<Result<T>> {
@@ -389,6 +390,22 @@ export function registerIpc(): void {
     wrap(async () => {
       const bookRoot = await bookRootFor(root);
       return querySyncStatus(Object.fromEntries(books.map((b) => [b, resolveBook(bookRoot, b)])));
+    }),
+  );
+  ipcMain.handle('fetchLatest', (_e, root: string, books: string[]) =>
+    wrap(async () => {
+      const bookRoot = await bookRootFor(root);
+      const targets: Record<string, string> = {};
+      const report: FetchReport = { oneDriveRunning: null, books: {} };
+      for (const b of books) {
+        const abs = resolveBook(bookRoot, b);
+        // Excel で開いているブックの中身を捨てると壊すので触らない
+        const open = await checkBookOpen(abs);
+        if (open.open) report.books[b] = { result: 'skipped', reason: `Excel で開かれています（${open.reason}）` };
+        else targets[b] = abs;
+      }
+      const r = await fetchLatest(targets);
+      return { oneDriveRunning: r.oneDriveRunning, books: { ...report.books, ...r.books } };
     }),
   );
   ipcMain.handle('bookStamp', (_e, root: string, book: string) =>

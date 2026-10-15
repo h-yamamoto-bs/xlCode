@@ -72,7 +72,7 @@ ConvertTo-Json -InputObject @($out) -Compress
 `;
 }
 
-async function oneDriveRunning(): Promise<boolean | null> {
+export async function oneDriveRunning(): Promise<boolean | null> {
   try {
     const { stdout } = await exec('tasklist.exe', ['/FI', 'IMAGENAME eq OneDrive.exe', '/FO', 'CSV', '/NH'], {
       windowsHide: true,
@@ -85,7 +85,7 @@ async function oneDriveRunning(): Promise<boolean | null> {
 }
 
 /** OneDrive の同期フォルダの一覧（レジストリと環境変数から） */
-async function oneDriveRoots(): Promise<string[]> {
+export async function oneDriveRoots(): Promise<string[]> {
   const roots = (await readSyncRoots()).map((r) => r.mountPoint);
   for (const k of ['OneDrive', 'OneDriveCommercial', 'OneDriveConsumer']) {
     const v = process.env[k];

@@ -30,6 +30,7 @@ const api: XlcodeApi = {
   readConfig: call('readConfig') as XlcodeApi['readConfig'],
   syncStatus: call('syncStatus') as XlcodeApi['syncStatus'],
   bookStamp: call('bookStamp') as XlcodeApi['bookStamp'],
+  fetchLatest: call('fetchLatest') as XlcodeApi['fetchLatest'],
   writeConfig: call('writeConfig') as XlcodeApi['writeConfig'],
   pickFolder: call('pickFolder') as XlcodeApi['pickFolder'],
   relocateBooks: call('relocateBooks') as XlcodeApi['relocateBooks'],

@@ -1,11 +1,12 @@
 import clsx from 'clsx';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FileContents } from '../../../core';
 import type { BookSummary, OpenWith } from '../../../shared/api';
 import { api } from '../api';
+import { findMatches, highlight } from '../find';
 import { STATUS } from '../status';
 import { Icon } from './Icons';
-import { Button } from './ui';
+import { Button, IconButton } from './ui';
 
 /**
  * コードのファイル（シート）の閲覧。編集はしない（Markdown 以外は既定のアプリか VS Code で開く）。
@@ -17,6 +18,7 @@ export function FileView({
   name,
   onOpenWith,
   onReveal,
+  findNonce = 0,
   onSelectForPrompt,
 }: {
   root: string;
@@ -24,6 +26,8 @@ export function FileView({
   name: string;
   onOpenWith: (app: OpenWith) => void;
   onReveal: () => void;
+  /** 増えるたびに検索欄を開いて入力に移る（Ctrl+F） */
+  findNonce?: number;
   /** 右のパネルの「指示」にこのファイル名を使う */
   onSelectForPrompt?: () => void;
 }) {
@@ -58,6 +62,52 @@ export function FileView({
 
   const lines = side === 'sheet' ? data?.sheet : data?.source;
   const rel = book.dirRel ? `${book.dirRel}/${name}` : name;
+
+  // ---- ファイル内の検索（Ctrl+F） ----
+  const [findOpen, setFindOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [matchCase, setMatchCase] = useState(false);
+  const [cursor, setCursor] = useState(0);
+  const findInput = useRef<HTMLInputElement>(null);
+  const matches = useMemo(() => findMatches(lines ?? [], query, matchCase), [lines, query, matchCase]);
+  const current = matches.length === 0 ? -1 : ((cursor % matches.length) + matches.length) % matches.length;
+  // 検索欄を開いて入力に移る。入力欄は開いた描画で現れるので、その描画のあとで focus する
+  const [wantFocus, setWantFocus] = useState(0);
+  const openFind = () => {
+    setFindOpen(true);
+    setWantFocus((n) => n + 1);
+  };
+  useEffect(() => {
+    if (findNonce > 0) openFind();
+    // findNonce が増えたときだけ
+  }, [findNonce]);
+  useEffect(() => {
+    if (wantFocus === 0) return;
+    findInput.current?.focus();
+    findInput.current?.select();
+  }, [wantFocus]);
+  // 検索語・対象が変わったら先頭から
+  useEffect(() => setCursor(0), [query, matchCase, side]);
+  // 今の該当箇所を見える位置に
+  const currentRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    currentRef.current?.scrollIntoView({ block: 'center' });
+  }, [current, matches]);
+  const closeFind = () => {
+    setFindOpen(false);
+    findInput.current?.blur();
+  };
+  const step = (d: number) => setCursor(matches.length === 0 ? 0 : (current + d + matches.length) % matches.length);
+  // 行ごとの該当箇所
+  const byLine = useMemo(() => {
+    const m = new Map<number, { start: number; end: number; index: number }[]>();
+    matches.forEach((x, index) => {
+      const arr = m.get(x.line) ?? [];
+      arr.push({ start: x.start, end: x.end, index });
+      m.set(x.line, arr);
+    });
+    return m;
+  }, [matches]);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-[35px] shrink-0 items-center gap-3 border-b border-line px-4">
@@ -67,6 +117,9 @@ export function FileView({
         </span>
         {status && <span className={clsx('shrink-0 text-[12px]', STATUS[status].color)}>{STATUS[status].label}</span>}
         <span className="ml-auto flex shrink-0 gap-1.5">
+          <Button onClick={openFind} title="ファイル内の文字を検索 (Ctrl+F)" aria-label="検索">
+            <Icon.Search size={14} /> 検索
+          </Button>
           <Button
             onClick={() => onOpenWith('default')}
             disabled={data?.source === null}
@@ -120,6 +173,58 @@ export function FileView({
           します。Excel 側は Copilot が書いた内容（Build 前のシート）です。
         </span>
       </div>
+      {findOpen && (
+        <div
+          className="flex shrink-0 items-center gap-1.5 border-b border-line bg-side px-3 py-1 text-[12px]"
+          role="search"
+          aria-label="ファイル内を検索"
+        >
+          <Icon.Search size={13} className="shrink-0 text-muted" />
+          <input
+            ref={findInput}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                step(e.shiftKey ? -1 : 1);
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closeFind();
+              }
+            }}
+            placeholder="検索（Enter で次、Shift+Enter で前）"
+            aria-label="検索する文字"
+            spellCheck={false}
+            className="h-6 w-[260px] max-w-[50vw] rounded-[3px] border border-field-border bg-input px-2 font-mono text-[12px] text-fg outline-none focus:border-accent"
+          />
+          <button
+            className={clsx(
+              'h-6 rounded-[3px] border px-1.5 font-mono text-[11px]',
+              matchCase ? 'border-accent bg-focus text-fg-strong' : 'border-transparent text-muted hover:bg-hover',
+            )}
+            aria-pressed={matchCase}
+            aria-label="大文字と小文字を区別する"
+            title="大文字と小文字を区別する"
+            onClick={() => setMatchCase((v) => !v)}
+          >
+            Aa
+          </button>
+          <span className="min-w-[72px] text-[11px] text-muted" aria-live="polite" data-testid="find-count">
+            {query === '' ? '' : matches.length === 0 ? '該当なし' : `${current + 1} / ${matches.length}`}
+          </span>
+          <IconButton title="前へ (Shift+Enter)" onClick={() => step(-1)} disabled={matches.length === 0}>
+            <Icon.ChevronDown size={14} className="rotate-180" />
+          </IconButton>
+          <IconButton title="次へ (Enter)" onClick={() => step(1)} disabled={matches.length === 0}>
+            <Icon.ChevronDown size={14} />
+          </IconButton>
+          <IconButton title="閉じる (Escape)" onClick={closeFind}>
+            <Icon.Close size={14} />
+          </IconButton>
+        </div>
+      )}
       {error && <div className="px-4 py-2 text-[12px] text-deleted">{error}</div>}
       <pre
         className="selectable m-0 min-h-0 flex-1 overflow-auto px-2 py-2 font-mono text-[13px] leading-[19px] text-fg"
@@ -128,7 +233,27 @@ export function FileView({
         {lines?.map((l, i) => (
           <div key={i} className="flex hover:bg-hover">
             <span className="w-10 shrink-0 pr-3 text-right text-faint select-none">{i + 1}</span>
-            <span className="whitespace-pre">{l}</span>
+            <span className="whitespace-pre">
+              {findOpen && byLine.has(i)
+                ? highlight(l, byLine.get(i)!).map((seg, k) =>
+                    seg.match === null ? (
+                      seg.text
+                    ) : (
+                      <mark
+                        key={k}
+                        ref={seg.match === current ? currentRef : undefined}
+                        className={clsx(
+                          'rounded-[2px]',
+                          seg.match === current ? 'bg-accent text-white' : 'bg-mark text-fg-strong',
+                        )}
+                        data-current={seg.match === current || undefined}
+                      >
+                        {seg.text}
+                      </mark>
+                    ),
+                  )
+                : l}
+            </span>
           </div>
         ))}
         {data && lines === null && <div className="px-3 text-muted">（ありません）</div>}

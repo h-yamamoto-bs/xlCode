@@ -5,6 +5,7 @@ import type {
   AppThemeSetting,
   BookSummary,
   ExcelMode,
+  FetchOutcome,
   OpenVia,
   OpenWith,
   ProjectInfo,
@@ -628,6 +629,45 @@ export function App() {
     [root],
   );
 
+  /**
+   * 再読み込み。Windows では先に、各ブックの最新の内容を OneDrive から取り直して同期が落ち着くまで待つ
+   * （Excel で開いていないブックの Web 版での変更は、OneDrive がすぐには届けないことがあるため）。
+   * 読み直しは withBusy の後処理で行う
+   */
+  const onReload = useCallback(
+    () =>
+      withBusy(api.platform === 'win32' ? 'OneDrive から最新を取得中' : '再読み込み中', async () => {
+        if (api.platform !== 'win32' || !root || !project) return;
+        const rels = project.books.filter((b) => !b.loadError).map((b) => b.rel);
+        if (rels.length === 0) return;
+        const r = await api.fetchLatest(root, rels);
+        if (!r.ok) {
+          log('warning', `OneDrive から取得できませんでした: ${r.error}`);
+          return;
+        }
+        const entries = Object.entries(r.value.books);
+        const count = (k: FetchOutcome['result']) => entries.filter(([, o]) => o.result === k).length;
+        const skippedOutside = entries.filter(([, o]) => o.result === 'skipped' && o.reason === 'OneDrive 外').length;
+        if (skippedOutside === entries.length) return; // OneDrive の外だけなら、ただ読み直す
+        for (const [rel, o] of entries) {
+          if (o.result === 'updated') log('success', `OneDrive から新しい内容が届きました: ${rel}`);
+          else if (o.result === 'failed') log('error', `${rel}: ${o.reason}${o.detail ? ` ${o.detail}` : ''}`);
+          else if (o.result === 'skipped' && o.reason !== 'OneDrive 外') log('warning', `${rel}: ${o.reason}`);
+          else if (o.detail) log('info', `${rel}: 変わりありません ${o.detail}`);
+        }
+        log(
+          count('failed') > 0 ? 'warning' : 'info',
+          `OneDrive から最新を取得: 更新 ${count('updated')}、変わらず ${count('unchanged')}、スキップ ${count('skipped')}、失敗 ${count('failed')}` +
+            (r.value.oneDriveRunning === false ? '（OneDrive が起動していません）' : ''),
+        );
+        if (count('failed') > 0) {
+          setPanelOpen(true);
+          setPanelTab('output');
+        }
+      }),
+    [withBusy, root, project, log],
+  );
+
   /** Excel 側・OneDrive 側の準備ができているか（Build / Sync / 開く の前） */
   const ready = useCallback(
     async (book: string, label: string) =>
@@ -837,6 +877,8 @@ export function App() {
 
   // 設定画面を読み直すためのキー（ブックの置き場所を変えた後など）
   const [settingsKey, setSettingsKey] = useState(0);
+  // 閲覧タブの検索欄を開く合図（Ctrl+F）
+  const [findNonce, setFindNonce] = useState(0);
 
   /**
    * ブックの置き場所を変える。move なら既存のブックも移動し、keep なら設定だけを変える。
@@ -1641,12 +1683,20 @@ export function App() {
         run: () => void onRefreshTree(),
       },
       {
+        id: 'find',
+        category: '表示',
+        title: 'ファイル内を検索',
+        keys: ['ctrl+f'],
+        when: active?.kind === 'file',
+        run: () => setFindNonce((n) => n + 1),
+      },
+      {
         id: 'reload',
         category: 'プロジェクト',
-        title: '再読み込み',
+        title: '再読み込み（OneDrive から最新を取得）',
         keys: ['f5'],
         when: hasProject && !isBusy,
-        run: () => void withBusy('再読み込み中', async () => {}),
+        run: () => void onReload(),
       },
       {
         id: 'create-book',
@@ -1909,6 +1959,7 @@ export function App() {
     appTheme,
     onApplyTheme,
     onApplyThemeAll,
+    onReload,
     project,
     book,
     canOperate,
@@ -1924,7 +1975,6 @@ export function App() {
     onOpenExcel,
     onUndo,
     onRefreshTree,
-    withBusy,
     openCreatePicker,
     onCreateAll,
     log,
@@ -2150,7 +2200,7 @@ export function App() {
                   onOpen={onOpenTarget}
                   sync={syncReport?.books ?? {}}
                   onRefreshTree={() => onRefreshTree()}
-                  onReload={() => withBusy('再読み込み中', async () => {})}
+                  onReload={() => void onReload()}
                   onCreateBook={onCreateBook}
                   onCreateAll={project.mode === 'vba' && project.modeSet ? undefined : () => void onCreateAll()}
                   onSettings={() => openSettings('bookRoot')}
@@ -2262,6 +2312,7 @@ export function App() {
                   name={parseFileRef(active.rel!).name}
                   onOpenWith={(app) => openWithApp(book, parseFileRef(active.rel!).name, app)}
                   onReveal={() => openWithApp(book, parseFileRef(active.rel!).name, 'reveal')}
+                  findNonce={findNonce}
                   onSelectForPrompt={() =>
                     setSelectedFiles((m) => ({ ...m, [book.rel]: parseFileRef(active.rel!).name }))
                   }
