@@ -69,7 +69,7 @@ function Modal({ spec, onClose }: { spec: DialogSpec<unknown>; onClose: (v: unkn
         role="dialog"
         aria-modal="true"
         aria-label={spec.title}
-        className="w-[520px] max-w-[92vw] rounded-md border border-[#454545] bg-widget shadow-[0_0_16px_rgba(0,0,0,0.6)]"
+        className="w-[520px] max-w-[92vw] rounded-md border border-widget-border bg-widget shadow-[0_0_16px_rgba(0,0,0,0.6)]"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex gap-4 px-5 pt-5 pb-3">

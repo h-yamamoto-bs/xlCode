@@ -1,4 +1,5 @@
 import type {
+  ApplyThemeResult,
   BookStatus,
   BuildOptions,
   CommitInfo,
@@ -16,6 +17,9 @@ import type {
   UndoResult,
   XlcodeConfig,
 } from '../core';
+
+/** xlCode の画面の表示モード（system は OS の設定に合わせる） */
+export type AppThemeSetting = 'dark' | 'light' | 'system';
 
 /** どの Excel で編集するか */
 export type ExcelMode = 'desktop' | 'web' | 'both';
@@ -126,6 +130,10 @@ export interface XlcodeApi {
   openFile(root: string, rel: string, app: OpenWith): Promise<Result<void>>;
   /** ソースファイルをエクスプローラーで表示する */
   revealFile(root: string, rel: string): Promise<Result<void>>;
+  /** 画面の表示モードを決めたことをメインプロセスに伝える（ウィンドウの色と、ブックのテーマ auto の基準になる） */
+  setAppTheme(setting: AppThemeSetting, resolved: 'dark' | 'light'): Promise<Result<void>>;
+  /** ブックのシートに、今の設定のテーマ（背景・文字色・枠線・タブの色）を当て直す。中身は変えない */
+  applyBookTheme(root: string, bookRel: string): Promise<Result<ApplyThemeResult>>;
   /** 直前の Build / Sync を元に戻す */
   undoLast(root: string, bookRel: string): Promise<Result<UndoResult>>;
   /** 各ブックがデスクトップ版 Excel で開かれているか（ポーリング用） */

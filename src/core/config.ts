@@ -2,6 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { atomicWrite } from './atomic';
 import { CONFIG_FILE, XLCODE_DIR } from './constants';
+import { BOOK_THEME_SETTINGS, type BookThemeSetting } from './theme';
 
 /**
  * プロジェクトの種類（最初のブックを作るときに決める）
@@ -35,6 +36,11 @@ export interface XlcodeConfig {
   bookRoot?: string;
   /** 拡張子のないファイル名のうち、追加でコードとして扱うもの（Makefile などは既定で扱う） */
   extraCodeNames?: string[];
+  /**
+   * 編集用ブックのテーマ（シートの背景・文字色。枠線は常に消す）。
+   * auto（既定）は xlCode の表示モードに合わせる。dark / light は表示モードに関わらず固定
+   */
+  bookTheme?: BookThemeSetting;
 }
 
 export const DEFAULT_CONFIG: XlcodeConfig = {
@@ -63,7 +69,10 @@ export async function loadConfig(root: string): Promise<XlcodeConfig> {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error(`${XLCODE_DIR}/${CONFIG_FILE} の形式が違います。修正するか削除してください`);
   }
-  return { ...DEFAULT_CONFIG, ...(parsed as Partial<XlcodeConfig>) };
+  const config = { ...DEFAULT_CONFIG, ...(parsed as Partial<XlcodeConfig>) };
+  // 知らない値は auto として扱う（設定が黙って壊れないように）
+  if (config.bookTheme !== undefined && !BOOK_THEME_SETTINGS.includes(config.bookTheme)) config.bookTheme = 'auto';
+  return config;
 }
 
 /** .xlcode/config.json に保存する（既定値と同じ項目も含めて書く） */

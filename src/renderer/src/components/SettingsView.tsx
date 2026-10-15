@@ -1,7 +1,9 @@
 import clsx from 'clsx';
 import { useEffect, useState, type ReactNode } from 'react';
-import type { XlcodeConfig } from '../../../core';
-import type { ExcelMode } from '../../../shared/api';
+import type { BookTheme, BookThemeSetting, XlcodeConfig } from '../../../core';
+import { THEMES } from '../../../core/theme';
+import type { AppThemeSetting, ExcelMode } from '../../../shared/api';
+import { APP_THEME_SETTINGS } from '../appTheme';
 import { api, unwrap } from '../api';
 import { Icon } from './Icons';
 import { Button, Kbd } from './ui';
@@ -38,8 +40,116 @@ function Row({ title, desc, children, id }: { title: string; desc?: ReactNode; c
   );
 }
 
+/** ブックのテーマの選択と、色見本・すべてのブックに適用するボタン */
+function ThemeSetting({
+  value,
+  onChange,
+  resolvedAppTheme,
+  outdatedSheets,
+  dirty,
+  onApplyAll,
+}: {
+  value: BookThemeSetting;
+  onChange: (v: BookThemeSetting) => void;
+  resolvedAppTheme: BookTheme;
+  outdatedSheets: number;
+  /** 設定が未保存（保存してから適用する） */
+  dirty: boolean;
+  onApplyAll: () => void;
+}) {
+  const options: { id: BookThemeSetting; label: string; desc: string }[] = [
+    {
+      id: 'auto',
+      label: 'xlCode の表示モードに合わせる',
+      desc: `今の表示モードは${THEMES[resolvedAppTheme].label}なので、ブックは${THEMES[resolvedAppTheme].label}になります。表示モードを変えると、次に書くシートから変わります。`,
+    },
+    { id: 'dark', label: 'ダーク（固定）', desc: '表示モードに関わらず、ブックは常にダークにします。' },
+    { id: 'light', label: 'ライト（固定）', desc: '表示モードに関わらず、ブックは常にライトにします。' },
+  ];
+  const shown: BookTheme = value === 'auto' ? resolvedAppTheme : value;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="ブックのテーマ">
+        {options.map((o) => (
+          <label
+            key={o.id}
+            className={clsx(
+              'flex cursor-pointer gap-2.5 rounded-[3px] border px-3 py-2',
+              value === o.id ? 'border-accent bg-focus/40' : 'border-line hover:bg-hover',
+            )}
+          >
+            <input
+              type="radio"
+              name="bookTheme"
+              checked={value === o.id}
+              onChange={() => onChange(o.id)}
+              className="mt-1 accent-accent"
+            />
+            <span>
+              <span className="text-fg">{o.label}</span>
+              <span className="block text-[12px] leading-relaxed text-muted">{o.desc}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <ThemePreview theme={shown} />
+        <div className="min-w-0 flex-1 text-[12px] leading-relaxed text-muted">
+          色見本（{THEMES[shown].label}）。
+          {outdatedSheets > 0 ? (
+            <>
+              今のテーマが当たっていないシートが <span className="text-fg">{outdatedSheets} 枚</span>
+              あります。{dirty ? '設定を保存してから、' : ''}
+              「すべてのブックに適用」で揃えます（中身は変わりません。Excel で開いているブックは閉じてください）。
+            </>
+          ) : (
+            'すべてのブックのシートが、このテーマになっています。'
+          )}
+        </div>
+        <Button
+          onClick={onApplyAll}
+          disabled={outdatedSheets === 0 || dirty}
+          title={dirty ? '先に設定を保存してください' : ''}
+        >
+          <Icon.Check size={14} /> すべてのブックに適用
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Excel のシートの見た目の色見本（背景・文字色・タブの色。枠線なし） */
+function ThemePreview({ theme }: { theme: BookTheme }) {
+  const p = THEMES[theme];
+  const lines = ['export const a = 1;', 'export function main() {', '  return a;', '}'];
+  return (
+    <div
+      aria-label={`${p.label}の色見本`}
+      className="w-[220px] shrink-0 overflow-hidden rounded-[3px] border border-line"
+    >
+      <div className="flex gap-px text-[10px]" style={{ background: '#d8d8d8' }}>
+        {(['code', 'meta'] as const).map((r) => (
+          <span key={r} className="px-2 py-px text-[#333]" style={{ borderBottom: `3px solid #${p.tab[r]}` }}>
+            {r === 'code' ? 'App.tsx' : '#tree'}
+          </span>
+        ))}
+      </div>
+      <div
+        className="px-2 py-1 font-mono text-[11px] leading-[16px]"
+        style={{ background: `#${p.fill}`, color: `#${p.text}` }}
+      >
+        {lines.map((l, i) => (
+          <div key={i} className="whitespace-pre">
+            {l}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const input =
-  'h-[26px] rounded-[2px] border border-[#3c3c3c] bg-input px-2 text-[13px] text-fg outline-none focus:border-accent';
+  'h-[26px] rounded-[2px] border border-field-border bg-input px-2 text-[13px] text-fg outline-none focus:border-accent';
 
 /** 置き場所の変更のしかた */
 export type RelocateMode = 'move' | 'keep';
@@ -56,7 +166,19 @@ export function SettingsView({
   onOpenDoc,
   onHelp,
   focus,
+  appTheme,
+  onAppTheme,
+  resolvedAppTheme,
+  outdatedSheets,
+  onApplyThemeAll,
 }: {
+  /** xlCode の画面の表示モードの設定と、実際に使っているモード */
+  appTheme: AppThemeSetting;
+  onAppTheme: (t: AppThemeSetting) => void;
+  resolvedAppTheme: BookTheme;
+  /** 今のテーマが当たっていないシートの数（全ブックの合計）と、すべてのブックに当て直す操作 */
+  outdatedSheets: number;
+  onApplyThemeAll: () => void;
   root: string;
   bookRoot: string | null;
   bookCount: number;
@@ -158,6 +280,39 @@ export function SettingsView({
                 />
                 <span>
                   <span className="text-fg">{m.label}</span>
+                  <span className="block text-[12px] leading-relaxed text-muted">{m.desc}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </Row>
+        <Row
+          title="表示モード"
+          desc="xlCode の画面の配色です。「OS に合わせる」は Windows の「色」の設定（ライト / ダーク）に従います。ブックのテーマを「xlCode の表示モードに合わせる」にしているときは、このモードがブックにも使われます。"
+        >
+          <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="表示モード">
+            {APP_THEME_SETTINGS.map((m) => (
+              <label
+                key={m.id}
+                className={clsx(
+                  'flex cursor-pointer gap-2.5 rounded-[3px] border px-3 py-2',
+                  appTheme === m.id ? 'border-accent bg-focus/40' : 'border-line hover:bg-hover',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="appTheme"
+                  checked={appTheme === m.id}
+                  onChange={() => onAppTheme(m.id)}
+                  className="mt-1 accent-accent"
+                />
+                <span>
+                  <span className="text-fg">
+                    {m.label}
+                    {m.id === 'system' && (
+                      <span className="ml-2 text-[12px] text-muted">（今は {THEMES[resolvedAppTheme].label}）</span>
+                    )}
+                  </span>
                   <span className="block text-[12px] leading-relaxed text-muted">{m.desc}</span>
                 </span>
               </label>
@@ -286,6 +441,30 @@ export function SettingsView({
         </Row>
         {config && (
           <>
+            <Row
+              id="setting-book-theme"
+              title="ブックのテーマ"
+              desc={
+                <>
+                  xlCode
+                  が作る編集用ブックのシートの見た目です。ダークはエディタで編集しているような黒に近い背景、ライトはふつうの白い背景で、どちらも枠線を消します。
+                  「xlCode
+                  の表示モードに合わせる」にすると、上の表示モードがダークならダーク、ライトならライトでブックを作ります。
+                  <button className="ml-1 text-link hover:underline" onClick={() => onHelp('ブックのテーマ')}>
+                    詳しく
+                  </button>
+                </>
+              }
+            >
+              <ThemeSetting
+                value={config.bookTheme ?? 'auto'}
+                onChange={(v) => set('bookTheme', v)}
+                resolvedAppTheme={resolvedAppTheme}
+                outdatedSheets={outdatedSheets}
+                dirty={dirty}
+                onApplyAll={onApplyThemeAll}
+              />
+            </Row>
             <Row
               title="拡張子のないファイルをコードとして扱う"
               desc="拡張子のあるファイルと、Makefile・Dockerfile・LICENSE などの決まった名前だけをコードとして扱います。それ以外で扱いたい名前を、空白か読点で区切って書きます（例: Taskfile, Justfile.local）。"

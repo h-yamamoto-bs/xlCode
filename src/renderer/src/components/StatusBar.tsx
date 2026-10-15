@@ -21,7 +21,7 @@ function Item({
     <Tag
       title={title}
       onClick={onClick}
-      className={clsx('flex h-full items-center gap-1 px-2', onClick && 'hover:bg-[#ffffff1f]', className)}
+      className={clsx('flex h-full items-center gap-1 px-2', onClick && 'hover:bg-hover-status', className)}
     >
       {children}
     </Tag>

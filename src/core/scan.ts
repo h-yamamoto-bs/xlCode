@@ -86,7 +86,15 @@ export async function scanBook(ctx: ProjectContext, ref: BookRef): Promise<Scan>
     errors.push(
       `ブックに対応するソースのフォルダがありません: ${ref.dirAbs}（ブックの置き場所の設定を確認してください）`,
     );
-    return { book: await Book.load(ref.abs), ref, errors, warnings, entries: [], deletes: [], conflictSheets: [] };
+    return {
+      book: await Book.load(ref.abs, ctx.bookTheme),
+      ref,
+      errors,
+      warnings,
+      entries: [],
+      deletes: [],
+      conflictSheets: [],
+    };
   }
   const copies = (await readdir(path.dirname(ref.abs))).filter(isBookCopy);
   if (copies.length > 0) {
@@ -98,7 +106,7 @@ export async function scanBook(ctx: ProjectContext, ref: BookRef): Promise<Scan>
   const longPath = excelPathError(ref.abs);
   if (longPath) warnings.push(longPath);
 
-  const book = await Book.load(ref.abs);
+  const book = await Book.load(ref.abs, ctx.bookTheme);
   const deletes: Scan['deletes'] = [];
   const conflictSheets: string[] = [];
   const sheets = new Map<string, { name: string; lines: string[]; canon: Canon }>();

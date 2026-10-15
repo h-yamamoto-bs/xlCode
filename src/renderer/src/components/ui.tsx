@@ -11,7 +11,7 @@ export function Button({
       className={clsx(
         'inline-flex h-[26px] items-center gap-1.5 rounded-[2px] px-3 text-[13px] whitespace-nowrap disabled:cursor-default disabled:opacity-50',
         variant === 'primary' && 'bg-accent text-white enabled:hover:bg-accent-hover',
-        variant === 'secondary' && 'bg-[#313131] text-fg enabled:hover:bg-[#3c3c3c]',
+        variant === 'secondary' && 'bg-btn text-fg enabled:hover:bg-btn-hover',
         variant === 'danger' && 'bg-[#8b2020] text-white enabled:hover:bg-[#a52a2a]',
         className,
       )}
@@ -27,7 +27,7 @@ export function IconButton({ title, className, ...rest }: ButtonHTMLAttributes<H
       title={title}
       aria-label={title}
       className={clsx(
-        'inline-flex h-[22px] w-[22px] items-center justify-center rounded-[5px] text-fg enabled:hover:bg-[#ffffff1a] disabled:opacity-40',
+        'inline-flex h-[22px] w-[22px] items-center justify-center rounded-[5px] text-fg enabled:hover:bg-hover-strong disabled:opacity-40',
         className,
       )}
       {...rest}
@@ -67,7 +67,7 @@ export function Section({
 
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="rounded-[3px] border border-[#ffffff26] bg-[#ffffff0f] px-1 font-mono text-[11px] text-muted">
+    <kbd className="rounded-[3px] border border-kbd-border bg-kbd-bg px-1 font-mono text-[11px] text-muted">
       {children}
     </kbd>
   );

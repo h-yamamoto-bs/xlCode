@@ -9,6 +9,7 @@ import { bookRef, bookRootOf, openProject } from './project';
 import { parseTreeVersion } from './tree';
 import { scanBook, type FileStatus } from './scan';
 import { undoInfo, type UndoInfo } from './undo';
+import { themeState, type ThemeState } from './applyTheme';
 import { modulesFromBook, vbaOutputInfo, type VbaBookInfo } from './vba';
 import { Book } from './workbook';
 
@@ -25,6 +26,8 @@ export interface BookStatus {
   undo: UndoInfo | null;
   /** VBA モードのビルド結果 */
   vba?: VbaBookInfo;
+  /** ブックのテーマ（背景・文字色・枠線）が今の設定どおりか */
+  theme: ThemeState;
 }
 
 /** 読み取り専用で各ファイルの状態を返す（GUI の「編集中ファイル一覧」用、5.5-3） */
@@ -54,6 +57,7 @@ export async function bookStatus(root: string, bookAbs: string): Promise<BookSta
     deletes: scan.deletes.map((d) => d.sheet),
     treeVersion: scan.book.hasSheet(TREE_SHEET) ? parseTreeVersion(scan.book.readSheet(TREE_SHEET).lines[0]) : null,
     undo: await undoInfo(root, ref.rel),
+    theme: themeState(scan.book, ctx.bookTheme, ctx.config.extraCodeNames),
   };
 }
 

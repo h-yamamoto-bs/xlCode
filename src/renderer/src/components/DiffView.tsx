@@ -33,8 +33,8 @@ export function DiffView({ diff }: { diff: FileDiff }) {
                   key={j}
                   className={clsx(
                     'flex whitespace-pre',
-                    l.kind === 'add' && 'bg-[#2ea04326] text-added',
-                    l.kind === 'del' && 'bg-[#f8514926] text-deleted',
+                    l.kind === 'add' && 'bg-diff-add text-added',
+                    l.kind === 'del' && 'bg-diff-del text-deleted',
                   )}
                 >
                   <span className="w-10 shrink-0 pr-2 text-right text-faint tabular-nums">{o}</span>

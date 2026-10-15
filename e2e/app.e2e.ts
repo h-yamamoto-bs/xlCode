@@ -817,3 +817,85 @@ describe('ドキュメントの編集の細かい動き', () => {
     expect(raw).toBe('# Agents.md\r\n\r\n- CRLF のルール\r\n- 追加');
   });
 });
+
+describe('表示モードとブックのテーマ', () => {
+  it('表示モードを切り替えると画面の配色が変わり、再起動しても覚えている', async () => {
+    const f = await project();
+    running = await launch(f.root);
+    const { win } = running;
+    const theme = () => win.evaluate(() => document.documentElement.dataset.theme);
+    await expect(theme()).resolves.toBe('dark');
+    await win.keyboard.press('Control+,');
+    const modes = win.getByRole('radiogroup', { name: '表示モード' });
+    await modes.getByRole('radio', { name: /^ライト/ }).check();
+    await expect.poll(theme).toBe('light');
+    const bg = () => win.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    await expect.poll(bg).toBe('rgb(255, 255, 255)');
+    await modes.getByRole('radio', { name: /^OS に合わせる/ }).check();
+    await win.getByText('（今は', { exact: false }).waitFor();
+    await modes.getByRole('radio', { name: /^ダーク/ }).check();
+    await expect.poll(theme).toBe('dark');
+    await expect.poll(bg).toBe('rgb(31, 31, 31)');
+    // コマンドパレットからも切り替えられる
+    await win.keyboard.press('Control+Shift+p');
+    const cmd = win.getByRole('dialog', { name: 'コマンドパレット' });
+    await cmd.getByRole('textbox').pressSequentially('表示モード ライト');
+    await cmd.getByRole('option', { name: /表示モード: ライト/ }).waitFor();
+    await cmd.getByRole('textbox').press('Enter');
+    await expect.poll(theme).toBe('light');
+    // 起動前に保存してある設定で開く
+    await running.close();
+    running = await launch(f.root, 'both', { appTheme: 'light' });
+    await expect(running.win.evaluate(() => document.documentElement.dataset.theme)).resolves.toBe('light');
+  });
+
+  it('ブックのテーマを固定にして保存し、「すべてのブックに適用」で中身を変えずに当て直す', async () => {
+    const f = await project();
+    running = await launch(f.root, 'desktop');
+    const { win } = running;
+    await win.keyboard.press('Control+,');
+    const group = win.getByRole('radiogroup', { name: 'ブックのテーマ' });
+    await group.getByRole('radio', { name: /^xlCode の表示モードに合わせる/ }).waitFor();
+    // 既定は auto。ダークの表示モードなので、検証用のブック（ダークで作成）には当て直す物が無い
+    await expect(group.getByRole('radio', { name: /^xlCode の表示モードに合わせる/ }).isChecked()).resolves.toBe(true);
+    await win.getByText('すべてのブックのシートが、このテーマになっています').waitFor();
+    // ライト（固定）にして保存すると、当て直すシートの数が出る
+    await group.getByRole('radio', { name: /^ライト（固定）/ }).check();
+    await expect(win.getByRole('button', { name: 'すべてのブックに適用' }).isDisabled()).resolves.toBe(true);
+    await win.getByRole('button', { name: '保存', exact: true }).first().click();
+    await waitLog(win, '設定を保存しました');
+    await win.getByText('あります。「すべてのブックに適用」で揃えます', { exact: false }).waitFor();
+    const { Book } = await import('../src/core/workbook');
+    expect((await Book.load(f.file(APP_BOOK))).sheetTheme('App.tsx')).toBe('dark');
+    await win.getByRole('button', { name: 'すべてのブックに適用' }).click();
+    await waitLog(win, /テーマを適用したブック: 2 \/ 2/);
+    for (const rel of [APP_BOOK, API_BOOK]) {
+      const book = await Book.load(f.file(rel));
+      expect(book.sheetTheme('#tree')).toBe('light');
+      expect(book.sheetNames().filter((n) => book.sheetTheme(n) !== 'light')).toEqual([]);
+    }
+    // 中身はそのまま
+    expect(await f.sheet(APP_BOOK, 'util.ts')).toEqual(['export const one = 1;']);
+    await win.getByText('すべてのブックのシートが、このテーマになっています').waitFor();
+    expect(JSON.parse(await f.read('.xlcode/config.json')).bookTheme).toBe('light');
+  });
+
+  it('Copilot が Excel で作ったシートはバナーで知らせ、「テーマを適用」で揃える', async () => {
+    const f = await project();
+    // Excel で保存し直した状態: テーマの無い新しいコードのシートを足す
+    await f.saveAsExcel(APP_BOOK, (wb) => {
+      wb.addWorksheet('made-by-copilot.ts').getCell('A1').value = 'export {};';
+    });
+    running = await launch(f.root, 'desktop');
+    const { win } = running;
+    await selectBook(win, APP_BOOK);
+    await win.getByText('ダークテーマが当たっていないシートが', { exact: false }).waitFor();
+    await win.getByText('made-by-copilot.ts', { exact: false }).first().waitFor();
+    await win.getByRole('button', { name: 'テーマを適用' }).click();
+    await waitLog(win, /ダークテーマを適用しました: app\/app\.xlcode\.xlsx/);
+    await expect.poll(() => win.getByText('テーマが当たっていないシート', { exact: false }).count()).toBe(0);
+    const { Book } = await import('../src/core/workbook');
+    expect((await Book.load(f.file(APP_BOOK))).sheetTheme('made-by-copilot.ts')).toBe('dark');
+    expect(await f.sheet(APP_BOOK, 'made-by-copilot.ts')).toEqual(['export {};']);
+  });
+});

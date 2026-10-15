@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { chordPrefixes, findCommand, type Command } from '../src/renderer/src/commands';
 import { fuzzyMatch, splitHighlights } from '../src/renderer/src/fuzzy';
 import { allowedWhileTyping, eventToKey, formatKey, normalizeBinding } from '../src/renderer/src/keys';
@@ -192,5 +192,20 @@ describe('ファイルのタブ', () => {
     expect(docKind('.xlcodeignore')).toBe('ignore');
     expect(docKind('.xlcode/notes.md')).toBe('notes');
     expect(docKind('docs/README.md')).toBe('markdown');
+  });
+});
+
+describe('表示モード', () => {
+  it('OS に合わせるときだけ OS の状態で決まる。保存が無ければダーク', async () => {
+    // appTheme は api.ts（window.xlcode）を経由するので、読み込む前に window を用意する
+    vi.stubGlobal('window', { xlcode: {} });
+    const { resolveAppTheme, isAppThemeSetting, readSavedAppTheme } = await import('../src/renderer/src/appTheme');
+    expect(resolveAppTheme('dark', false)).toBe('dark');
+    expect(resolveAppTheme('light', true)).toBe('light');
+    expect(resolveAppTheme('system', true)).toBe('dark');
+    expect(resolveAppTheme('system', false)).toBe('light');
+    expect(['dark', 'light', 'system', 'pink', null].map(isAppThemeSetting)).toEqual([true, true, true, false, false]);
+    // localStorage が無い環境（ここ）でも落ちず、これまでの見た目（ダーク）になる
+    expect(readSavedAppTheme()).toBe('dark');
   });
 });

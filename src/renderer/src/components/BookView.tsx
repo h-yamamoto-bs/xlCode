@@ -24,10 +24,10 @@ function Banner({
   role?: string;
 }) {
   const style = {
-    error: 'border-deleted/60 bg-[#5a1d1d]/60',
-    warning: 'border-warn/50 bg-[#4d3b00]/50',
-    info: 'border-accent/60 bg-[#063b49]/50',
-    success: 'border-added/50 bg-[#1b3a26]/60',
+    error: 'border-deleted/60 bg-banner-error/60',
+    warning: 'border-warn/50 bg-banner-warn/50',
+    info: 'border-accent/60 bg-banner-info/50',
+    success: 'border-added/50 bg-banner-success/60',
     next: 'border-line bg-side',
   }[kind];
   const icon = {
@@ -65,9 +65,11 @@ function Stat({ label, value, color, hint }: { label: string; value: number; col
 function Count({ n, color }: { n: number; color: string }) {
   if (n === 0) return null;
   return (
-    <span className={clsx('rounded-full bg-[#ffffff1a] px-1.5 text-[11px] leading-4 tabular-nums', color)}>{n}</span>
+    <span className={clsx('rounded-full bg-hover-strong px-1.5 text-[11px] leading-4 tabular-nums', color)}>{n}</span>
   );
 }
+
+const THEME_LABEL = { dark: 'ダーク', light: 'ライト' } as const;
 
 export const ACTION_LABEL: Record<string, string> = {
   'write-file': 'ファイル出力',
@@ -197,7 +199,10 @@ export function BookView({
   selectedFile = null,
   onSelectFile,
   onOpenFile,
+  onApplyTheme,
 }: {
+  /** ブックのテーマ（背景・文字色・枠線）を当て直す */
+  onApplyTheme?: () => void;
   /** ファイルの内容を閲覧（Markdown は編集）のタブで開く */
   onOpenFile?: (name: string) => void;
   root: string;
@@ -473,6 +478,36 @@ export function BookView({
               }
             >
               #tree が最新ではありません。Refresh Tree を実行してください。
+            </Banner>
+          )}
+          {(book.theme?.outdated.length ?? 0) > 0 && (
+            <Banner
+              kind="info"
+              action={
+                onApplyTheme && (
+                  <Button
+                    onClick={onApplyTheme}
+                    disabled={disabled}
+                    className="shrink-0"
+                    title="シートの中身は変えず、見た目だけを揃えます"
+                  >
+                    <Icon.Check size={14} /> テーマを適用
+                  </Button>
+                )
+              }
+            >
+              {THEME_LABEL[book.theme!.desired]}テーマが当たっていないシートが {book.theme!.outdated.length}{' '}
+              枚あります。
+              <div className="text-[12px] text-muted">
+                Copilot が Excel
+                で作ったシートや、設定でテーマを変えた直後のシートです。適用すると、背景・文字色・枠線・タブの色を揃えます（中身は変わりません）。
+                <span className="font-mono">
+                  {' '}
+                  {book.theme!.outdated.slice(0, 4).join(', ')}
+                  {book.theme!.outdated.length > 4 ? ' …' : ''}
+                </span>
+                <HelpLink anchor="ブックのテーマ" onHelp={onHelp} />
+              </div>
             </Banner>
           )}
           {vba && out && (

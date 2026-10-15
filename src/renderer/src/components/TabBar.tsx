@@ -130,7 +130,7 @@ export function TabBar({
                 aria-label={t.dirty ? `${t.label} を閉じる（保存していない変更があります）` : `${t.label} を閉じる`}
                 title={t.dirty ? '保存していない変更があります' : '閉じる'}
                 className={clsx(
-                  'ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] hover:bg-[#ffffff1a]',
+                  'ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] hover:bg-hover-strong',
                   !t.dirty && !selected && 'opacity-0 group-hover:opacity-100',
                 )}
                 onClick={(e) => {
@@ -161,7 +161,7 @@ export function TabBar({
       {menu && (
         <ul
           role="menu"
-          className="fixed z-50 min-w-[180px] rounded-md border border-[#454545] bg-widget py-1 text-[13px] shadow-[0_0_12px_rgba(0,0,0,0.6)]"
+          className="fixed z-50 min-w-[180px] rounded-md border border-widget-border bg-widget py-1 text-[13px] shadow-[0_0_12px_rgba(0,0,0,0.6)]"
           style={{ left: menu.x, top: menu.y }}
           onMouseDown={(e) => e.stopPropagation()}
         >

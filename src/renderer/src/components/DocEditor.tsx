@@ -146,7 +146,7 @@ export function DocEditor({
         )}
       </div>
       {changedOnDisk && (
-        <div className="flex shrink-0 items-center gap-3 border-b border-warn/50 bg-[#4d3b00]/50 px-4 py-1.5 text-[12px]">
+        <div className="flex shrink-0 items-center gap-3 border-b border-warn/50 bg-banner-warn/50 px-4 py-1.5 text-[12px]">
           <Icon.Warning size={14} className="shrink-0 text-warn" />
           <span className="flex-1">
             編集中に、このファイルがほかの場所で変更されました。保存するとほかの場所での変更は上書きされます。

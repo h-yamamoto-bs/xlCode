@@ -5,6 +5,7 @@ import { Canonicalizer } from './canonical';
 import { loadConfig, type XlcodeConfig } from './config';
 import { isBookFile, loadIgnore, toPosixRel } from './fsutil';
 import { loadState, type State } from './state';
+import { getHostTheme, resolveBookTheme, type BookTheme } from './theme';
 
 export interface ProjectContext {
   root: string;
@@ -12,6 +13,8 @@ export interface ProjectContext {
   ig: Ignore;
   state: State;
   canon: Canonicalizer;
+  /** この操作で書くシートに当てるテーマ（設定と xlCode の表示モードから決まる） */
+  bookTheme: BookTheme;
 }
 
 export async function openProject(root: string): Promise<ProjectContext> {
@@ -19,7 +22,14 @@ export async function openProject(root: string): Promise<ProjectContext> {
   const state = await loadState(root);
   const known = new Set<string>();
   for (const b of Object.values(state.books)) for (const f of Object.values(b.files)) known.add(f.hash);
-  return { root, config, ig: await loadIgnore(root), state, canon: new Canonicalizer(config, known) };
+  return {
+    root,
+    config,
+    ig: await loadIgnore(root),
+    state,
+    canon: new Canonicalizer(config, known),
+    bookTheme: resolveBookTheme(config.bookTheme, getHostTheme()),
+  };
 }
 
 export interface BookRef {

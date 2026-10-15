@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { atomicWrite } from './atomic';
 import { escapeCell, hasLoneSurrogate } from './cellEscape';
 import { MAX_CELL_CHARS } from './constants';
+import { sheetRole, themeOfTabColor, type BookTheme } from './theme';
 import { patchXlsx, type PatchOp } from './xlsxPatch';
 
 export { escapeCell, hasLoneSurrogate } from './cellEscape';
@@ -55,17 +56,19 @@ export class Book {
   private constructor(
     readonly wb: ExcelJS.Workbook,
     source: Uint8Array | null,
+    /** xlCode が書くシートに当てるテーマ。無ければ従来の見た目（塗りつぶしなし）のまま */
+    readonly theme?: BookTheme,
   ) {
     this.source = source;
   }
 
-  static create(): Book {
+  static create(theme?: BookTheme): Book {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'xlCode';
-    return new Book(wb, null);
+    return new Book(wb, null, theme);
   }
 
-  static async load(file: string): Promise<Book> {
+  static async load(file: string, theme?: BookTheme): Promise<Book> {
     // ExcelJS の readFile はパスの扱いが環境依存なので Buffer 経由で読む
     let buf: Buffer;
     try {
@@ -79,11 +82,11 @@ export class Book {
         { cause: e },
       );
     }
-    return Book.fromBuffer(buf, file);
+    return Book.fromBuffer(buf, file, theme);
   }
 
   /** 読み込み済みのファイルの中身から開く（file はエラー表示用） */
-  static async fromBuffer(buf: Uint8Array, file: string): Promise<Book> {
+  static async fromBuffer(buf: Uint8Array, file: string, theme?: BookTheme): Promise<Book> {
     const wb = new ExcelJS.Workbook();
     try {
       await wb.xlsx.load(buf as unknown as ArrayBuffer);
@@ -92,7 +95,7 @@ export class Book {
         cause: e,
       });
     }
-    return new Book(wb, buf);
+    return new Book(wb, buf, theme);
   }
 
   /**
@@ -101,7 +104,7 @@ export class Book {
    */
   async save(file: string): Promise<void> {
     const base = this.source ?? new Uint8Array((await new ExcelJS.Workbook().xlsx.writeBuffer()) as ArrayBuffer);
-    const out = await patchXlsx(base, this.ops);
+    const out = await patchXlsx(base, this.ops, this.theme);
     await atomicWrite(file, out);
     this.source = out;
     this.ops = [];
@@ -172,7 +175,7 @@ export class Book {
       ws.getColumn(1).width = 120;
     }
     const cols = [lines, ...columns];
-    this.ops.push({ kind: 'write', name, columns: cols.map((c) => [...c]) });
+    this.ops.push({ kind: 'write', name, columns: cols.map((c) => [...c]), role: sheetRole(name) });
     for (let c = 1; c <= cols.length; c++) {
       const col = ws.getColumn(c);
       col.numFmt = '@';
@@ -188,6 +191,23 @@ export class Book {
         cell.numFmt = '@';
         cell.font = CODE_FONT;
       }
+    }
+  }
+
+  /** シートに当たっているテーマ（タブの色と枠線なしで判定）。xlCode のテーマが当たっていなければ null */
+  sheetTheme(name: string): BookTheme | null {
+    const ws = this.wb.getWorksheet(name);
+    if (!ws) return null;
+    const theme = themeOfTabColor(ws.properties?.tabColor?.argb);
+    const noGrid = ws.views?.[0]?.showGridLines === false;
+    return theme && noGrid ? theme : null;
+  }
+
+  /** 指定したシートに、このブックのテーマを当て直す（中身は変えない）。保存で反映される */
+  restyle(names: readonly string[]): void {
+    if (!this.theme) throw new Error('テーマが決まっていません');
+    for (const name of names) {
+      if (this.wb.getWorksheet(name)) this.ops.push({ kind: 'restyle', name, role: sheetRole(name) });
     }
   }
 

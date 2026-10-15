@@ -15,7 +15,7 @@ function highlight(text: string, query: string): ReactNode {
   for (let at = lower.indexOf(query); at >= 0; at = lower.indexOf(query, from)) {
     parts.push(text.slice(from, at));
     parts.push(
-      <mark key={at} className="rounded-[2px] bg-[#613214] text-fg-strong">
+      <mark key={at} className="rounded-[2px] bg-mark text-fg-strong">
         {text.slice(at, at + query.length)}
       </mark>,
     );
@@ -34,7 +34,7 @@ function Inlines({ nodes, ctx }: { nodes: Inline[]; ctx: Ctx }): ReactNode {
         return (
           <code
             key={i}
-            className="rounded-[3px] bg-[#ffffff14] px-1 py-px font-mono text-[0.92em] break-words text-fg-strong"
+            className="rounded-[3px] bg-code-bg px-1 py-px font-mono text-[0.92em] break-words text-fg-strong"
           >
             {highlight(n.text, ctx.query)}
           </code>
@@ -216,7 +216,7 @@ export function HelpView({ anchor, nonce }: { anchor?: string; nonce?: number })
           ヘルプ
         </div>
         <div className="px-3 pb-2">
-          <div className="flex h-[26px] items-center gap-1.5 rounded-[2px] border border-[#3c3c3c] bg-input px-2 focus-within:border-accent">
+          <div className="flex h-[26px] items-center gap-1.5 rounded-[2px] border border-field-border bg-input px-2 focus-within:border-accent">
             <Icon.Search size={13} className="shrink-0 text-muted" />
             <input
               aria-label="ヘルプを検索"

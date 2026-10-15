@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 
-/* VS Code Dark Modern に準拠した配色 */
+/*
+ * 配色。ダークは VS Code Dark Modern、ライトは Light Modern に準拠する。
+ * 値は :root（ダーク）と :root[data-theme='light'] の 2 か所で定義し、画面の色は必ずこの変数を通す
+ * （色の直書きをしない）。data-theme は表示モードの設定から画面が付ける
+ */
 @theme {
   --color-editor: #1f1f1f;
   --color-side: #181818;
@@ -24,8 +28,75 @@
   --color-info: #4fc1ff;
   --color-warn: #cca700;
   --color-excel: #3fb56b;
+  /* ボタン・入力欄・ダイアログの枠 */
+  --color-btn: #313131;
+  --color-btn-hover: #3c3c3c;
+  --color-field-border: #3c3c3c;
+  --color-widget-border: #454545;
+  /* 重ねて使う薄い色（ホバー・コード・キー表示） */
+  --color-hover-strong: #ffffff1a;
+  --color-hover-status: #ffffff1f;
+  --color-code-bg: #ffffff14;
+  --color-kbd-bg: #ffffff0f;
+  --color-kbd-border: #ffffff26;
+  --color-badge: #616161;
+  --color-mark: #613214;
+  /* お知らせの背景（BookView の Banner）・差分 */
+  --color-banner-error: #5a1d1d;
+  --color-banner-warn: #4d3b00;
+  --color-banner-info: #063b49;
+  --color-banner-success: #1b3a26;
+  --color-diff-add: #2ea04326;
+  --color-diff-del: #f8514926;
   --font-sans: 'Segoe UI', 'Yu Gothic UI', 'Meiryo UI', system-ui, -apple-system, sans-serif;
   --font-mono: Consolas, 'Cascadia Code', 'BIZ UDGothic', ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-editor: #ffffff;
+  --color-side: #f8f8f8;
+  --color-line: #e5e5e5;
+  --color-hover: #ececec;
+  --color-selected: #e4e6f1;
+  --color-focus: #cce4f7;
+  --color-input: #ffffff;
+  --color-widget: #f3f3f3;
+  --color-fg: #3b3b3b;
+  --color-fg-strong: #1f1f1f;
+  --color-muted: #616161;
+  --color-faint: #8a8a8a;
+  --color-accent: #005fb8;
+  --color-accent-hover: #0258a8;
+  --color-link: #0066bf;
+  --color-modified: #895503;
+  --color-added: #1a7f37;
+  --color-deleted: #cf222e;
+  --color-conflict: #c72e0f;
+  --color-info: #0969da;
+  --color-warn: #9a6700;
+  --color-excel: #107c41;
+  --color-btn: #e8e8e8;
+  --color-btn-hover: #dcdcdc;
+  --color-field-border: #c8c8c8;
+  --color-widget-border: #c8c8c8;
+  --color-hover-strong: #0000001a;
+  --color-hover-status: #0000001a;
+  --color-code-bg: #0000000f;
+  --color-kbd-bg: #0000000a;
+  --color-kbd-border: #00000026;
+  --color-badge: #8a8a8a;
+  --color-mark: #ffe08a;
+  --color-banner-error: #fde7e9;
+  --color-banner-warn: #fff4ce;
+  --color-banner-info: #dff0ff;
+  --color-banner-success: #dff6dd;
+  --color-diff-add: #2ea04333;
+  --color-diff-del: #f8514933;
 }
 
 html,
@@ -63,6 +134,10 @@ input,
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(100, 100, 100, 0.7);
+}
+/* ライトのときの入力欄などの選択色 */
+:root[data-theme='light'] ::selection {
+  background: #add6ff;
 }
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {

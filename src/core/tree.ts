@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Ignore } from 'ignore';
 import { AGENTS_SHEET, TREE_FILE, TREE_SHEET, TREE_VERSION_PREFIX, XLCODE_DIR } from './constants';
 import { loadConfig } from './config';
+import { getHostTheme, resolveBookTheme } from './theme';
 import { findBooks, loadIgnore, toPosixRel, walkTree, type TreeNode } from './fsutil';
 import { bookRootOf } from './project';
 import { checkBookOpen } from './lock';
@@ -87,7 +88,9 @@ export async function refreshTree(root: string): Promise<RefreshResult> {
   await atomicWrite(path.join(root, XLCODE_DIR, TREE_FILE), [tree.header, ...tree.lines].join('\n') + '\n');
   const agents = await readRootAgents(root);
 
-  const bookRoot = bookRootOf(root, await loadConfig(root));
+  const config = await loadConfig(root);
+  const bookRoot = bookRootOf(root, config);
+  const theme = resolveBookTheme(config.bookTheme, getHostTheme());
   const books: BookTreeResult[] = [];
   for (const abs of await findBooks(root, ig, bookRoot)) {
     const rel = toPosixRel(bookRoot, abs);
@@ -97,7 +100,7 @@ export async function refreshTree(root: string): Promise<RefreshResult> {
         books.push({ book: rel, ok: false, error: `開かれています（${open.reason}）` });
         continue;
       }
-      const book = await Book.load(abs);
+      const book = await Book.load(abs, theme);
       if (treeUpToDate(book, tree, agents)) {
         books.push({ book: rel, ok: true, unchanged: true });
         continue;

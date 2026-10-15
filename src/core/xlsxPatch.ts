@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import { escapeCell } from './cellEscape';
+import { THEME_FONT, THEMES, type BookTheme, type SheetRole } from './theme';
 
 /**
  * 既存の xlsx / xlsm を「変更したシートだけ」書き換える。
@@ -9,7 +10,9 @@ import { escapeCell } from './cellEscape';
  * それ以外のパーツはそのまま残す。
  */
 export type PatchOp =
-  | { kind: 'write'; name: string; columns: readonly (readonly string[])[] }
+  | { kind: 'write'; name: string; columns: readonly (readonly string[])[]; role?: SheetRole }
+  /** 中身は変えずに、テーマ（塗りつぶし・文字色・枠線・タブの色）だけを当て直す */
+  | { kind: 'restyle'; name: string; role?: SheetRole }
   | { kind: 'delete'; name: string }
   | { kind: 'front'; name: string };
 
@@ -71,10 +74,27 @@ class SharedStrings {
   }
 }
 
+/** シートに当てるスタイル（styles.xml の cellXfs の番号など） */
+interface SheetStyle {
+  /** 文字列書式（@）で、フォント・塗りつぶしをテーマに合わせたセルスタイル */
+  text: number | null;
+  /** データの無い列（B 列以降）・行を塗りつぶすための既定スタイル（書式は標準） */
+  fill: number | null;
+  /** タブの色（RRGGBB）。テーマの目印にもなる */
+  tab: string | null;
+  /** 枠線（目盛線）を消す */
+  hideGrid: boolean;
+}
+
+/** 列の最大番号（xlsx は 16384 列 = XFD） */
+const MAX_COL = 16384;
+/** 列幅の既定値（Excel の標準の幅） */
+const FILL_COL_WIDTH = '9.140625';
+
 /** ワークシートの XML を作る */
-function worksheetXml(columns: readonly (readonly string[])[], style: number | null, sst: SharedStrings): string {
+function worksheetXml(columns: readonly (readonly string[])[], style: SheetStyle, sst: SharedStrings): string {
   const rows = Math.max(0, ...columns.map((c) => c.length));
-  const s = style === null ? '' : ` s="${style}"`;
+  const s = style.text === null ? '' : ` s="${style.text}"`;
   const body: string[] = [];
   for (let r = 1; r <= rows; r++) {
     const cells: string[] = [];
@@ -88,20 +108,95 @@ function worksheetXml(columns: readonly (readonly string[])[], style: number | n
   const cols = columns
     .map(
       (_, i) =>
-        `<col min="${i + 1}" max="${i + 1}" width="120" customWidth="1"${style === null ? '' : ` style="${style}"`}/>`,
+        `<col min="${i + 1}" max="${i + 1}" width="120" customWidth="1"${style.text === null ? '' : ` style="${style.text}"`}/>`,
+    )
+    // 残りの列をすべて同じ背景にする（データの無い範囲まで塗りつぶす）
+    .concat(
+      style.fill !== null && columns.length < MAX_COL
+        ? [`<col min="${columns.length + 1}" max="${MAX_COL}" width="${FILL_COL_WIDTH}" style="${style.fill}"/>`]
+        : [],
     )
     .join('');
   const dim = rows === 0 ? 'A1' : `A1:${colName(Math.max(1, columns.length))}${rows}`;
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
     `<worksheet xmlns="${NS_MAIN}" xmlns:r="${NS_REL}">` +
-    `<dimension ref="${dim}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews>` +
+    (style.tab ? `<sheetPr><tabColor rgb="FF${style.tab}"/></sheetPr>` : '') +
+    `<dimension ref="${dim}"/><sheetViews><sheetView${style.hideGrid ? ' showGridLines="0"' : ''} workbookViewId="0"/></sheetViews>` +
     `<sheetFormatPr defaultRowHeight="15"/>` +
     (cols ? `<cols>${cols}</cols>` : '') +
     `<sheetData>${body.join('')}</sheetData>` +
     `<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>` +
     `</worksheet>`
   );
+}
+
+/**
+ * 既存のシート XML に、テーマだけを当て直す（中身のセルは変えない）。
+ * - タブの色（sheetPr）・枠線なし（sheetView）
+ * - 列の既定スタイル（cols）。16384 列までの残りも塗りつぶす
+ * - すべてのセルのスタイル
+ */
+export function restyleSheetXml(xml: string, style: SheetStyle): string {
+  let out = xml;
+  // タブの色
+  if (style.tab) {
+    const tab = `<tabColor rgb="FF${style.tab}"/>`;
+    if (/<sheetPr\b[^>]*\/>/.test(out)) {
+      out = out.replace(/<sheetPr\b([^>]*?)\s*\/>/, `<sheetPr$1>${tab}</sheetPr>`);
+    } else if (/<sheetPr\b/.test(out)) {
+      out = /<tabColor\b[^>]*\/>/.test(out)
+        ? out.replace(/<tabColor\b[^>]*\/>/, tab)
+        : out.replace(/(<sheetPr\b[^>]*>)/, `$1${tab}`);
+    } else {
+      out = out.replace(/(<worksheet\b[^>]*>)/, `$1<sheetPr>${tab}</sheetPr>`);
+    }
+  }
+  // 枠線（sheetViews が無いシート（ExcelJS が保存したものなど）には、スキーマの順序の位置へ足す）
+  if (/<sheetView\b/.test(out)) {
+    out = out.replace(/<sheetView\b([^>]*?)(\/?)>/, (_all, attrsText: string, close: string) => {
+      const rest = attrsText.replace(/\s*showGridLines="[^"]*"/, '');
+      return `<sheetView${style.hideGrid ? ' showGridLines="0"' : ''}${rest}${close}>`;
+    });
+  } else if (style.hideGrid) {
+    const views = '<sheetViews><sheetView showGridLines="0" workbookViewId="0"/></sheetViews>';
+    const after = /<dimension\b[^>]*\/>/.exec(out) ?? /<\/sheetPr>/.exec(out) ?? /<sheetPr\b[^>]*\/>/.exec(out);
+    if (after) out = out.replace(after[0], `${after[0]}${views}`);
+    else out = out.replace(/(<worksheet\b[^>]*>)/, `$1${views}`);
+  }
+  // 列の既定スタイル
+  if (style.text !== null) {
+    const cols: string[] = [];
+    let last = 0;
+    const colsBlock = /<cols>([\s\S]*?)<\/cols>/.exec(out);
+    for (const m of (colsBlock?.[1] ?? '').matchAll(/<col\b[^>]*\/>/g)) {
+      const a = attrs(m[0]);
+      const max = Number(a.max ?? a.min ?? '1');
+      last = Math.max(last, max);
+      const id = max >= MAX_COL ? style.fill : style.text;
+      const bare = m[0].replace(/\s*style="[^"]*"/, '').replace(/\s*\/>$/, '');
+      cols.push(`${bare}${id === null ? '' : ` style="${id}"`}/>`);
+    }
+    if (cols.length === 0) {
+      cols.push(`<col min="1" max="1" width="120" customWidth="1" style="${style.text}"/>`);
+      last = 1;
+    }
+    if (last < MAX_COL && style.fill !== null) {
+      cols.push(`<col min="${last + 1}" max="${MAX_COL}" width="${FILL_COL_WIDTH}" style="${style.fill}"/>`);
+    }
+    const block = `<cols>${cols.join('')}</cols>`;
+    out = colsBlock ? out.replace(colsBlock[0], block) : out.replace(/<sheetData\b/, `${block}<sheetData`);
+    // セル
+    out = out.replace(/<c(\s[^>]*?)?(\/?)>/g, (_all, a: string | undefined, close: string) => {
+      const attrsText = a ?? '';
+      // 属性の並びは保ち、s だけを差し替える（無ければ足す）
+      const next = /\ss="[^"]*"/.test(attrsText)
+        ? attrsText.replace(/(\s)s="[^"]*"/, `$1s="${style.text}"`)
+        : `${attrsText} s="${style.text}"`;
+      return `<c${next}${close}>`;
+    });
+  }
+  return out;
 }
 
 /** 文字列書式（@ = numFmtId 49）・等幅フォントのセルスタイルを探し、無ければ追加する */
@@ -135,6 +230,84 @@ function ensureTextStyle(styles: string): { styles: string; index: number | null
       ),
   );
   return { styles: out, index: xfId };
+}
+
+/** テーマ用のフォント・塗りつぶし・セルスタイル（cellXfs）を探し、無ければ styles.xml に追加する */
+function ensureThemeStyles(
+  styles: string,
+  theme: BookTheme,
+): { styles: string; text: number | null; fill: number | null } {
+  const palette = THEMES[theme];
+  const fontsMatch = /<fonts\b[^>]*>([\s\S]*?)<\/fonts>/.exec(styles);
+  const fillsMatch = /<fills\b[^>]*>([\s\S]*?)<\/fills>/.exec(styles);
+  const xfsMatch = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(styles);
+  if (!fontsMatch || !fillsMatch || !xfsMatch) return { styles, text: null, fill: null };
+  const items = (block: string, tag: string) =>
+    [...block.matchAll(new RegExp(`<${tag}\\b[^>]*?(?:\\/>|>[\\s\\S]*?<\\/${tag}>)`, 'g'))].map((m) => m[0]);
+  const fonts = items(fontsMatch[1], 'font');
+  const fills = items(fillsMatch[1], 'fill');
+  const xfs = items(xfsMatch[1], 'xf');
+  let out = styles;
+
+  const add = (kind: 'fonts' | 'fills' | 'cellXfs', count: number, xml: string) => {
+    const block = new RegExp(`<${kind}\\b[^>]*>[\\s\\S]*?<\\/${kind}>`).exec(out)![0];
+    out = out.replace(
+      block,
+      block
+        .replace(new RegExp(`<${kind}\\b([^>]*?)count="\\d+"`), `<${kind}$1count="${count + 1}"`)
+        .replace(`</${kind}>`, `${xml}</${kind}>`),
+    );
+  };
+
+  let fontId = fonts.findIndex(
+    (f) =>
+      f.includes(`val="${THEME_FONT.name}"`) &&
+      f.includes(`<sz val="${THEME_FONT.size}"/>`) &&
+      f.includes(`rgb="FF${palette.text}"`),
+  );
+  if (fontId < 0) {
+    fontId = fonts.length;
+    add(
+      'fonts',
+      fonts.length,
+      `<font><sz val="${THEME_FONT.size}"/><color rgb="FF${palette.text}"/><name val="${THEME_FONT.name}"/><family val="3"/></font>`,
+    );
+  }
+  let fillId = fills.findIndex(
+    (f) => f.includes('patternType="solid"') && f.includes(`<fgColor rgb="FF${palette.fill}"/>`),
+  );
+  if (fillId < 0) {
+    fillId = fills.length;
+    add(
+      'fills',
+      fills.length,
+      `<fill><patternFill patternType="solid"><fgColor rgb="FF${palette.fill}"/><bgColor indexed="64"/></patternFill></fill>`,
+    );
+  }
+  const xfIndex = (numFmtId: number): number => {
+    const found = xfs.findIndex((x) => {
+      const a = attrs(x.slice(0, x.indexOf('>') + 1));
+      return (
+        a.numFmtId === String(numFmtId) &&
+        a.fontId === String(fontId) &&
+        a.fillId === String(fillId) &&
+        a.borderId === '0'
+      );
+    });
+    if (found >= 0) return found;
+    const index = xfs.length;
+    xfs.push(`<xf numFmtId="${numFmtId}" fontId="${fontId}" fillId="${fillId}"/>`);
+    add(
+      'cellXfs',
+      index,
+      `<xf numFmtId="${numFmtId}" fontId="${fontId}" fillId="${fillId}" borderId="0" xfId="0"${numFmtId === 0 ? '' : ' applyNumberFormat="1"'} applyFont="1" applyFill="1"/>`,
+    );
+    return index;
+  };
+  // 文字列書式（@ = 49）と、データの無い範囲用の標準書式（0）
+  const text = xfIndex(49);
+  const fill = xfIndex(0);
+  return { styles: out, text, fill };
 }
 
 interface SheetEntry {
@@ -198,7 +371,7 @@ function resolveTarget(target: string): string {
   return target.startsWith('/') ? target.slice(1) : `xl/${target}`;
 }
 
-export async function patchXlsx(original: Uint8Array, ops: readonly PatchOp[]): Promise<Buffer> {
+export async function patchXlsx(original: Uint8Array, ops: readonly PatchOp[], theme?: BookTheme): Promise<Buffer> {
   const zip = await JSZip.loadAsync(original);
   const read = async (p: string) => (await zip.file(p)?.async('string')) ?? null;
   let workbook = ensureSheetsElement((await read('xl/workbook.xml'))!);
@@ -213,12 +386,27 @@ export async function patchXlsx(original: Uint8Array, ops: readonly PatchOp[]): 
   const sstCount = sstXml ? (sstXml.match(/<si[\s>]/g) ?? []).length : 0;
   const sst = new SharedStrings(sstCount);
 
-  let styleIndex: number | null = null;
-  if (styles && ops.some((o) => o.kind === 'write')) {
-    const r = ensureTextStyle(styles);
-    styles = r.styles;
-    styleIndex = r.index;
+  // セルのスタイル。テーマが決まっていれば塗りつぶし・文字色・枠線なし・タブの色まで、無ければ従来の（等幅・文字列書式だけ）
+  let textStyle: number | null = null;
+  let fillStyle: number | null = null;
+  if (styles && ops.some((o) => o.kind === 'write' || o.kind === 'restyle')) {
+    if (theme) {
+      const r = ensureThemeStyles(styles, theme);
+      styles = r.styles;
+      textStyle = r.text;
+      fillStyle = r.fill;
+    } else {
+      const r = ensureTextStyle(styles);
+      styles = r.styles;
+      textStyle = r.index;
+    }
   }
+  const styleFor = (role: SheetRole | undefined): SheetStyle => ({
+    text: textStyle,
+    fill: fillStyle,
+    tab: theme ? THEMES[theme].tab[role ?? 'code'] : null,
+    hideGrid: theme !== undefined,
+  });
 
   const relTarget = (rid: string): string | null => {
     const tag = [...rels.matchAll(/<Relationship\b[^>]*\/>/g)].map((m) => m[0]).find((t) => attrs(t).Id === rid);
@@ -229,7 +417,7 @@ export async function patchXlsx(original: Uint8Array, ops: readonly PatchOp[]): 
     const sheets = readSheets(workbook);
     const index = sheets.findIndex((s) => s.name.toLowerCase() === op.name.toLowerCase());
     if (op.kind === 'write') {
-      const xml = worksheetXml(op.columns, styleIndex, sst);
+      const xml = worksheetXml(op.columns, styleFor(op.role), sst);
       if (index >= 0) {
         const part = relTarget(sheets[index].rid);
         if (!part) throw new Error(`シート「${op.name}」の実体が見つかりません`);
@@ -255,6 +443,13 @@ export async function patchXlsx(original: Uint8Array, ops: readonly PatchOp[]): 
         '</sheets>',
         `<sheet name="${xmlEscape(op.name)}" sheetId="${sheetId}" r:id="${rid}"/></sheets>`,
       );
+    } else if (op.kind === 'restyle') {
+      if (index < 0 || !theme) continue;
+      const part = relTarget(sheets[index].rid);
+      if (!part) continue;
+      const current = await read(part);
+      if (current === null) continue;
+      zip.file(part, restyleSheetXml(current, styleFor(op.role)));
     } else if (op.kind === 'delete') {
       if (index < 0) continue;
       const entry = sheets[index];

@@ -94,14 +94,14 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
       <div
         role="dialog"
         aria-label={commandMode ? 'コマンドパレット' : 'クイックオープン'}
-        className="w-[600px] max-w-[92vw] overflow-hidden rounded-md border border-[#454545] bg-widget shadow-[0_0_16px_rgba(0,0,0,0.6)]"
+        className="w-[600px] max-w-[92vw] overflow-hidden rounded-md border border-widget-border bg-widget shadow-[0_0_16px_rgba(0,0,0,0.6)]"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="p-1.5">
           <input
             ref={input}
             aria-label={spec.placeholder}
-            className="h-[26px] w-full rounded-[2px] border border-[#3c3c3c] bg-input px-2 text-[13px] text-fg outline-none focus:border-accent"
+            className="h-[26px] w-full rounded-[2px] border border-field-border bg-input px-2 text-[13px] text-fg outline-none focus:border-accent"
             placeholder={spec.placeholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}

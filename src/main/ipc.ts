@@ -2,8 +2,10 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { applyAppearance } from './appearance';
 import {
   AGENTS_SHEET,
+  applyTheme,
   IGNORE_FILE,
   LOCAL_AGENTS_SHEET,
   NOTES_FILE,
@@ -44,7 +46,7 @@ import {
 import { atomicWrite } from '../core/atomic';
 import { excelPathError, toPosixRel } from '../core/fsutil';
 import { exists } from '../core/project';
-import type { BookSummary, OpenVia, OpenWith, ProjectInfo, Result } from '../shared/api';
+import type { AppThemeSetting, BookSummary, OpenVia, OpenWith, ProjectInfo, Result } from '../shared/api';
 import {
   findRoot,
   isPersonalUrl,
@@ -343,6 +345,12 @@ export function registerIpc(): void {
   );
   ipcMain.handle('revealFile', (_e, root: string, rel: string) =>
     wrap(async () => shell.showItemInFolder(inside(root, rel))),
+  );
+  ipcMain.handle('setAppTheme', (e, setting: AppThemeSetting, resolved: 'dark' | 'light') =>
+    wrap(() => applyAppearance(BrowserWindow.fromWebContents(e.sender), setting, resolved)),
+  );
+  ipcMain.handle('applyBookTheme', (_e, root: string, book: string) =>
+    wrap(async () => applyTheme(root, await bookAbsOf(root, book))),
   );
   ipcMain.handle('undoLast', (_e, root: string, book: string) =>
     wrap(async () => undoLast(root, bookRef(root, await bookAbsOf(root, book), await bookRootFor(root)))),

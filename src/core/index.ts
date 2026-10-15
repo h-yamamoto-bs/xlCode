@@ -25,6 +25,17 @@ export { bookRef } from './project';
 export { relocateBooks, validateBookRoot, type RelocateOptions, type RelocateResult } from './relocate';
 export { bookPathFor, bookRootOf, resolveBook } from './project';
 export type { ProjectMode } from './config';
+export { applyTheme, themeState, isManagedSheet, type ApplyThemeResult, type ThemeState } from './applyTheme';
+export {
+  BOOK_THEME_SETTINGS,
+  THEMES,
+  getHostTheme,
+  resolveBookTheme,
+  setHostTheme,
+  sheetRole,
+  type BookTheme,
+  type BookThemeSetting,
+} from './theme';
 export {
   vbaBackupDir,
   vbaBuild,

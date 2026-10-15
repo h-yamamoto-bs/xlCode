@@ -53,7 +53,7 @@ export function Panel({
           >
             {t.label}
             {t.count !== undefined && t.count > 0 && (
-              <span className="rounded-full bg-[#616161] px-1.5 text-[10px] leading-4 text-white">{t.count}</span>
+              <span className="rounded-full bg-badge px-1.5 text-[10px] leading-4 text-white">{t.count}</span>
             )}
           </button>
         ))}

@@ -1,7 +1,15 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CommitInfo, Confirmation, OpResult, ProjectMode } from '../../core';
-import type { BookSummary, ExcelMode, OpenVia, OpenWith, ProjectInfo, SyncReport } from '../../shared/api';
+import type {
+  AppThemeSetting,
+  BookSummary,
+  ExcelMode,
+  OpenVia,
+  OpenWith,
+  ProjectInfo,
+  SyncReport,
+} from '../../shared/api';
 import { api, storageGet, storageSet, unwrap } from './api';
 import { chordPrefixes, commandLabel, findCommand, type Command } from './commands';
 import { ACTION_LABEL, BookView, type LastResult } from './components/BookView';
@@ -22,6 +30,7 @@ import { StatusBar } from './components/StatusBar';
 import { TabBar, type TabView } from './components/TabBar';
 import { IconButton, Kbd } from './components/ui';
 import { Welcome } from './components/Welcome';
+import { APP_THEME_SETTINGS, applyDocumentTheme, PREFERS_DARK, readSavedAppTheme, resolveAppTheme } from './appTheme';
 import { allowedWhileTyping, eventToKey, formatKey, isTyping } from './keys';
 import { SOURCE_SIDE, SYNC_META } from './status';
 import {
@@ -181,6 +190,16 @@ export function App() {
     setExcelModeState(m);
     storageSet('excelMode', m);
   }, []);
+  // 画面の表示モード（ダーク / ライト / OS に合わせる）。ブックのテーマ auto の基準にもなる
+  const [appTheme, setAppThemeState] = useState<AppThemeSetting>(readSavedAppTheme);
+  const [prefersDark, setPrefersDark] = useState(() => window.matchMedia(PREFERS_DARK).matches);
+  useEffect(() => {
+    const q = window.matchMedia(PREFERS_DARK);
+    const on = (e: MediaQueryListEvent) => setPrefersDark(e.matches);
+    q.addEventListener('change', on);
+    return () => q.removeEventListener('change', on);
+  }, []);
+  const resolvedTheme = resolveAppTheme(appTheme, prefersDark);
   // ブックを最後に xlCode からどちらで開いたか（キー: ルート|ブック）。
   // Web 版で開いたときは、その時点のブックの更新日時・サイズ（stamp）も覚えておく
   const lastOpened = useRef<Record<string, Opened>>(
@@ -246,6 +265,17 @@ export function App() {
     },
     [root, log, pruneForProject],
   );
+
+  // 表示モードを画面・ウィンドウ・メインプロセスに反映する。変わったら、ブックのテーマ（auto）の判定も読み直す
+  useEffect(() => {
+    applyDocumentTheme(resolvedTheme);
+    storageSet('appTheme', appTheme);
+    void api.setAppTheme(appTheme, resolvedTheme).then(() => {
+      if (!busyRef.current) void reload();
+    });
+    // reload は project の読み込みに使うだけ。表示モードが変わったときだけ動かす
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appTheme, resolvedTheme]);
 
   // 開いているタブをプロジェクトごとに覚えておく（次に開いたときに復元する）
   useEffect(() => {
@@ -761,6 +791,48 @@ export function App() {
         r,
       ),
     [withBusy, root, log],
+  );
+
+  /** ブックのテーマ（背景・文字色・枠線・タブの色）を当て直す。中身は変えない */
+  const applyThemeTo = useCallback(
+    async (book: string): Promise<boolean> => {
+      if (!(await ready(book, 'テーマの適用'))) return false;
+      setBusy('テーマを適用中');
+      const r = await unwrap(api.applyBookTheme(root!, book));
+      log(
+        r.sheets.length === 0 ? 'info' : 'success',
+        r.sheets.length === 0
+          ? `テーマは適用済みです: ${book}`
+          : `${r.theme === 'dark' ? 'ダーク' : 'ライト'}テーマを適用しました: ${book}（${r.sheets.length} シート）`,
+      );
+      await refreshStamp(book);
+      return true;
+    },
+    [root, ready, log, refreshStamp],
+  );
+  const onApplyTheme = useCallback(
+    (book: string) => withBusy('テーマを適用中', async () => void (await applyThemeTo(book))),
+    [withBusy, applyThemeTo],
+  );
+  const onApplyThemeAll = useCallback(
+    () =>
+      withBusy('テーマを適用中', async () => {
+        const targets = (project?.books ?? []).filter((b) => !b.loadError && (b.theme?.outdated.length ?? 0) > 0);
+        let done = 0;
+        for (const b of targets) {
+          if (b.open) {
+            log('warning', `Excel で開かれているためスキップしました: ${b.rel}`);
+            continue;
+          }
+          try {
+            if (await applyThemeTo(b.rel)) done++;
+          } catch (e) {
+            log('error', `${b.rel}: ${(e as Error).message}`);
+          }
+        }
+        log(done === targets.length ? 'success' : 'warning', `テーマを適用したブック: ${done} / ${targets.length}`);
+      }),
+    [withBusy, project, applyThemeTo, log],
   );
 
   // 設定画面を読み直すためのキー（ブックの置き場所を変えた後など）
@@ -1810,9 +1882,33 @@ export function App() {
         when: mode !== m.id,
         run: () => setExcelMode(m.id),
       })),
+      ...APP_THEME_SETTINGS.map((m): Command => ({
+        id: `app-theme-${m.id}`,
+        category: '設定',
+        title: `表示モード: ${m.label}`,
+        when: appTheme !== m.id,
+        run: () => setAppThemeState(m.id),
+      })),
+      {
+        id: 'apply-theme',
+        category: 'ブック',
+        title: 'ブックのテーマを適用（背景・文字色・枠線を揃える）',
+        when: canOperate && (book?.theme?.outdated.length ?? 0) > 0,
+        run: () => void onApplyTheme(book!.rel),
+      },
+      {
+        id: 'apply-theme-all',
+        category: 'ブック',
+        title: 'すべてのブックにテーマを適用',
+        when: hasProject && !isBusy && (project?.books ?? []).some((b) => (b.theme?.outdated.length ?? 0) > 0),
+        run: () => void onApplyThemeAll(),
+      },
     ];
     return list;
   }, [
+    appTheme,
+    onApplyTheme,
+    onApplyThemeAll,
     project,
     book,
     canOperate,
@@ -2151,6 +2247,11 @@ export function App() {
                 onOpenDoc={(rel) => open('doc', rel)}
                 onHelp={openHelp}
                 focus={settingsFocus}
+                appTheme={appTheme}
+                onAppTheme={setAppThemeState}
+                resolvedAppTheme={resolvedTheme}
+                outdatedSheets={project.books.reduce((n, b) => n + (b.theme?.outdated.length ?? 0), 0)}
+                onApplyThemeAll={() => void onApplyThemeAll()}
               />
             ) : active?.kind === 'file' ? (
               book ? (
@@ -2219,6 +2320,7 @@ export function App() {
                 platform={api.platform}
                 selectedFile={selectedFiles[book.rel] ?? null}
                 onOpenFile={(name) => openFileOf(book, name)}
+                onApplyTheme={() => void onApplyTheme(book.rel)}
                 onSelectFile={(name) =>
                   setSelectedFiles((m) => {
                     const next = { ...m };

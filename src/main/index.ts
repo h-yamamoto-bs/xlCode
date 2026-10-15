@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { app, BrowserWindow, dialog, Menu, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, shell } from 'electron';
+import { readAppearance, resolveAppearance, WINDOW_COLORS } from './appearance';
 import { registerIpc } from './ipc';
 
 /**
@@ -17,18 +18,19 @@ function setupMenu(): void {
 }
 
 function createWindow(): void {
-  nativeTheme.themeSource = 'dark';
+  // 前回の表示モードで開く（画面が読み込まれたら、画面の設定で改めて決まる）
+  const colors = WINDOW_COLORS[resolveAppearance(readAppearance())];
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 900,
     minHeight: 560,
     show: false,
-    backgroundColor: '#1f1f1f',
+    backgroundColor: colors.background,
     title: 'xlCode',
     titleBarStyle: 'hidden',
     titleBarOverlay:
-      process.platform === 'darwin' ? undefined : { color: '#181818', symbolColor: '#cccccc', height: 35 },
+      process.platform === 'darwin' ? undefined : { color: colors.bar, symbolColor: colors.symbol, height: 35 },
     webPreferences: {
       preload: path.join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,

@@ -172,7 +172,7 @@ export async function createBook(
   if (vba) await writeVbaStarters(dirAbs);
 
   // 作成するブック自身も #tree に載るよう、先に空のブック（取り込みではもとのブック）を保存してからツリーを取る
-  const book = opts.base ? await Book.fromBuffer(opts.base, bookAbs) : Book.create();
+  const book = opts.base ? await Book.fromBuffer(opts.base, bookAbs, ctx.bookTheme) : Book.create(ctx.bookTheme);
   await book.save(bookAbs);
   const bs = bookState(ctx.state, ref.rel);
   const sheets: string[] = [];

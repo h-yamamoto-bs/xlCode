@@ -20,6 +20,8 @@ const api: XlcodeApi = {
   fileContents: call('fileContents') as XlcodeApi['fileContents'],
   recentCommits: call('recentCommits') as XlcodeApi['recentCommits'],
   openFile: call('openFile') as XlcodeApi['openFile'],
+  setAppTheme: call('setAppTheme') as XlcodeApi['setAppTheme'],
+  applyBookTheme: call('applyBookTheme') as XlcodeApi['applyBookTheme'],
   revealFile: call('revealFile') as XlcodeApi['revealFile'],
   undoLast: call('undoLast') as XlcodeApi['undoLast'],
   openInExcel: call('openInExcel') as XlcodeApi['openInExcel'],
