@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import type { FetchOutcome, FetchReport } from '../shared/api';
 import { runPowerShell } from './powershell';
 import { isUnder, oneDriveRoots, oneDriveRunning } from './syncStatus';
@@ -38,13 +41,19 @@ export interface RawFetchInfo {
 export const DEHYDRATE_WAIT_MS = 15_000;
 export const HYDRATE_WAIT_MS = 60_000;
 
-/** PowerShell に渡すスクリプト。パスは Base64 の UTF-8 JSON で渡す */
-export function buildFetchScript(paths: string[]): string {
-  const b64 = Buffer.from(JSON.stringify(paths), 'utf8').toString('base64');
-  return `
+/**
+ * PowerShell に渡すスクリプト。
+ * パスの一覧は UTF-8 の JSON ファイル（pathsFile）で渡す。コマンドライン（-EncodedCommand）には
+ * 長さの上限（約 32,000 文字）があり、ブックが多いと収まらないため。
+ * コメント行は送る前に取り除く（compactScript）
+ */
+export function buildFetchScript(pathsFile: string): string {
+  const file = pathsFile.replace(/'/g, "''");
+  return compactScript(`
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-$paths = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}')))
+try {
+$paths = ConvertFrom-Json (Get-Content -LiteralPath '${file}' -Raw -Encoding UTF8)
 $sh = New-Object -ComObject Shell.Application
 # Cloud Files API（cldapi.dll）。エクスプローラーの「空き領域を増やす」が使うもの
 $cfLoadErr = $null
@@ -73,6 +82,17 @@ $BUSY = 0x1D         # STS_NEEDSUPLOAD | STS_TRANSFERRING | STS_PAUSED | STS_HAS
 $MOVING = 0x6        # STS_NEEDSDOWNLOAD | STS_TRANSFERRING
 function Stamp($p) { $f = Get-Item -LiteralPath $p -Force; "$($f.LastWriteTimeUtc.Ticks):$($f.Length)" }
 function Attrs($p) { [int64][int](Get-Item -LiteralPath $p -Force).Attributes }
+# 「常に保持」「空き領域を増やす」の印（FILE_ATTRIBUTE_PINNED / UNPINNED）を付け外しする。attrib +P / +U と同じ
+function SetPin($p, $pin, $unpin) {
+  $a = Attrs $p
+  $a = $a -band (-bnot ($PINNED -bor $UNPINNED))
+  if ($pin) { $a = $a -bor $PINNED }
+  if ($unpin) { $a = $a -bor $UNPINNED }
+  # SetFileAttributes で付けられる属性だけ渡す（ReparsePoint・RecallOnDataAccess などは渡せない）
+  $a = $a -band 0x1831A7
+  if ($a -eq 0) { $a = 0x80 }
+  [IO.File]::SetAttributes($p, [IO.FileAttributes]$a)
+}
 function Sts($p) {
   $i = $sh.Namespace([IO.Path]::GetDirectoryName($p)).ParseName([IO.Path]::GetFileName($p))
   if ($i) { $v = $i.ExtendedProperty('System.SyncTransferStatus'); if ($null -ne $v) { return [int64]$v } }
@@ -93,7 +113,7 @@ foreach ($p in @($paths)) {
     $r.wasOnline = $online
     if (-not $online) {
       # 1. 空き領域を増やす（ローカルの中身を捨てる）。「常に保持」のままでは捨てられないので先に外す
-      & attrib.exe +U -P $p | Out-Null
+      SetPin $p $false $true
       if ($cfLoadErr) { $r.cfErr = "load: $cfLoadErr" } else { $r.cfErr = CfDehydrate $p }
       if (((Attrs $p) -band $ONLINE) -ne 0) { $online = $true; $r.how = 'cf' }
       if (-not $online) {
@@ -106,7 +126,7 @@ foreach ($p in @($paths)) {
       }
       if (-not $online) {
         # ファイル オンデマンドが無効か、OneDrive が応じない。元に戻して諦める
-        if ($pinned) { & attrib.exe +P -U $p | Out-Null } elseif (-not $unpinned) { & attrib.exe -U $p | Out-Null }
+        SetPin $p $pinned $unpinned
         $r.step = 'no-dehydrate'; $r.attrs = Attrs $p; $r.sts = Sts $p
         $out += [pscustomobject]$r; continue
       }
@@ -121,19 +141,31 @@ foreach ($p in @($paths)) {
       Start-Sleep -Milliseconds 500
     }
     # 元の「常に保持」「空き領域を増やす」の設定に戻す
-    if ($pinned) { & attrib.exe +P -U $p | Out-Null } elseif (-not $unpinned) { & attrib.exe -U $p | Out-Null }
+    SetPin $p $pinned $unpinned
     $r.after = Stamp $p
     $r.attrs = Attrs $p; $r.sts = Sts $p
     $r.step = 'done'
   } catch {
     $r.err = $_.Exception.Message
     # 取り寄せに失敗してオンラインのみのままなら、OneDrive が動き出したときに取り寄せるよう「常に保持」にしておく
-    try { if (((Attrs $p) -band $ONLINE) -ne 0) { & attrib.exe +P -U $p | Out-Null } } catch {}
+    try { if (((Attrs $p) -band $ONLINE) -ne 0) { SetPin $p $true $false } } catch {}
   }
   $out += [pscustomobject]$r
 }
 ConvertTo-Json -InputObject @($out) -Compress
-`;
+} catch {
+  ConvertTo-Json -InputObject @{ fatal = $_.Exception.Message; at = "$($_.InvocationInfo.ScriptLineNumber)" } -Compress
+}
+`);
+}
+
+/** コメント行と行末のコメントを取り除く（コマンドラインを短くする。文字列の中の # は無い前提） */
+export function compactScript(script: string): string {
+  return script
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l) && l.trim() !== '')
+    .map((l) => l.replace(/\s+#\s[^'"]*$/, ''))
+    .join('\n');
 }
 
 /** Cloud Files API のエラー（winerror.h の ERROR_CLOUD_FILE_*）を日本語に */
@@ -216,13 +248,21 @@ export async function fetchLatest(books: Record<string, string>): Promise<FetchR
     return { oneDriveRunning: running, books: out };
   }
   let raws: RawFetchInfo[];
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'xlcode-fetch-'));
   try {
+    const pathsFile = path.join(dir, 'paths.json');
+    await writeFile(pathsFile, '\uFEFF' + JSON.stringify(inside.map(([, abs]) => abs)), 'utf8');
     const timeout = 30_000 + inside.length * (DEHYDRATE_WAIT_MS + HYDRATE_WAIT_MS + 15_000);
-    raws = JSON.parse(await runPowerShell(buildFetchScript(inside.map(([, abs]) => abs)), timeout)) as RawFetchInfo[];
+    const stdout = await runPowerShell(buildFetchScript(pathsFile), timeout);
+    const parsed = JSON.parse(stdout) as RawFetchInfo[] | { fatal: string; at: string };
+    if (!Array.isArray(parsed)) throw new Error(`スクリプトの ${parsed.at} 行目: ${parsed.fatal}`);
+    raws = parsed;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     for (const [rel] of inside) out[rel] = { result: 'failed', reason: `PowerShell を実行できません: ${msg}` };
     return { oneDriveRunning: running, books: out };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
   for (const [rel, abs] of inside) {
     const raw = raws.find((r) => r.path === abs);

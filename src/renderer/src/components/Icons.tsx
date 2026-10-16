@@ -176,6 +176,12 @@ export const Icon = {
       <path d="M5 2.5v3.5h5V2.5M5 13.5v-4h6v4" />
     </Svg>
   ),
+  Copy: (p: P) => (
+    <Svg {...p}>
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1" />
+      <path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" />
+    </Svg>
+  ),
   Gear: (p: P) => (
     <Svg {...p}>
       <circle cx="8" cy="8" r="2" />

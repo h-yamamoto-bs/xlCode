@@ -59,9 +59,18 @@ export function Panel({
         ))}
         <div className="ml-auto flex gap-0.5">
           {tab === 'output' && (
-            <IconButton title="出力をクリア" onClick={onClear}>
-              <Icon.Close size={14} />
-            </IconButton>
+            <>
+              <IconButton
+                title="出力をすべてコピー"
+                onClick={() => void navigator.clipboard.writeText(logs.map((l) => `[${l.time}] ${l.text}`).join('\n'))}
+                disabled={logs.length === 0}
+              >
+                <Icon.Copy size={14} />
+              </IconButton>
+              <IconButton title="出力をクリア" onClick={onClear}>
+                <Icon.Close size={14} />
+              </IconButton>
+            </>
           )}
           <IconButton title="パネルを閉じる" onClick={onClose}>
             <Icon.ChevronDown size={14} />

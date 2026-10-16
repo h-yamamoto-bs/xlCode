@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildFetchScript, cfMessage, fetchLatest, outcomeOf, type RawFetchInfo } from '../src/main/onedriveFetch';
+import {
+  buildFetchScript,
+  cfMessage,
+  compactScript,
+  fetchLatest,
+  outcomeOf,
+  type RawFetchInfo,
+} from '../src/main/onedriveFetch';
+import { describePowerShellError } from '../src/main/powershell';
 import { findMatches, highlight } from '../src/renderer/src/find';
 
 const raw = (over: Partial<RawFetchInfo>): RawFetchInfo => ({
@@ -55,25 +63,45 @@ describe('OneDrive から最新を取り直す', () => {
     expect(JSON.parse(outcomeOf(raw({})).detail!)).toMatchObject({ step: 'done', before: '1:100', after: '2:120' });
   });
 
-  it('スクリプトは日本語のパスを Base64 で渡し、「空き領域を増やす」→ 読む → 待つ → 元に戻す の順になっている', () => {
-    const paths = ['C:\\Users\\me\\OneDrive - 株式会社\\shop\\app.xlcode.xlsx'];
-    const script = buildFetchScript(paths);
-    const b64 = Buffer.from(JSON.stringify(paths), 'utf8').toString('base64');
-    expect(script).toContain(b64);
-    expect(script).not.toContain('株式会社');
-    const dehydrate = script.indexOf('attrib.exe +U -P');
+  it('スクリプトはパスの一覧をファイルで受け取り、「捨てる」→ 読む → 待つ → 元に戻す の順になっている', () => {
+    const script = buildFetchScript("C:\\Users\\me\\AppData\\Local\\Temp\\xlcode-fetch-1\\it's.json");
+    // ファイル名の ' はエスケープする。コメント行は送らない（コマンドラインの長さの上限のため）
+    expect(script).toContain(
+      "Get-Content -LiteralPath 'C:\\Users\\me\\AppData\\Local\\Temp\\xlcode-fetch-1\\it''s.json'",
+    );
+    expect(script.split('\n').some((l) => /^\s*#/.test(l))).toBe(false);
+    expect(script).not.toContain('attrib.exe');
+    const dehydrate = script.indexOf('SetPin $p $false $true');
     const cf = script.indexOf('CfDehydrate $p');
+    const read = script.indexOf('ReadAllBytes');
+    const restore = script.lastIndexOf('SetPin $p $pinned $unpinned');
+    expect(dehydrate).toBeGreaterThan(0);
     expect(cf).toBeGreaterThan(dehydrate);
     expect(script).toContain('CfDehydratePlaceholder');
-    const read = script.indexOf('ReadAllBytes');
-    const restore = script.lastIndexOf('attrib.exe +P -U');
-    expect(dehydrate).toBeGreaterThan(0);
-    expect(read).toBeGreaterThan(dehydrate);
+    expect(read).toBeGreaterThan(cf);
     expect(script.indexOf('Start-Sleep', read)).toBeGreaterThan(read);
     expect(restore).toBeGreaterThan(read);
     // 同期の途中（アップロード待ち・転送中・一時停止・エラー）のファイルには触らない
     expect(script).toContain('$BUSY = 0x1D');
     expect(script).toContain("step = 'busy'");
+    // 途中で落ちても JSON で理由を返す
+    expect(script).toContain('fatal = $_.Exception.Message');
+    // -EncodedCommand（UTF-16 → Base64）にしても、Windows のコマンドラインの上限に十分収まる
+    expect(Buffer.from(script, 'utf16le').toString('base64').length).toBeLessThan(16_000);
+  });
+
+  it('compactScript はコメント行と行末のコメントだけを取り除く', () => {
+    expect(compactScript("# 説明\n$a = 1   # 値\n\n$b = '# これは文字列'\n")).toBe("$a = 1\n$b = '# これは文字列'");
+  });
+
+  it('PowerShell の失敗を、原因が分かる文にする', () => {
+    expect(describePowerShellError({ killed: true }, 90_000)).toBe('90 秒たっても終わりませんでした');
+    expect(describePowerShellError({ code: 'ENOENT' }, 1)).toBe('powershell.exe が見つかりません');
+    expect(describePowerShellError({ code: 'E2BIG' }, 1, 40_000)).toBe('コマンドラインが長すぎます（40000 文字）');
+    expect(describePowerShellError({ code: 1, stderr: 'At line:3 char:5\r\n+ oops\r\n' }, 1)).toBe(
+      '終了コード 1: At line:3 char:5 + oops',
+    );
+    expect(describePowerShellError({ message: 'boom' }, 1)).toBe('boom');
   });
 
   it('Windows 以外では何もせず、すべて skipped', async () => {
