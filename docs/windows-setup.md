@@ -16,15 +16,15 @@ cd xlCode
 
 ## A. アプリとして使う（インストーラー。Node.js 不要）
 
-1. `release\installer\join.bat` をダブルクリック → `xlCode-Setup-1.8.1.exe` ができる
+1. `release\installer\join.bat` をダブルクリック → `xlCode-Setup-1.8.2.exe` ができる
 2. （任意）ハッシュを確認する
 
    ```bat
-   certutil -hashfile release\installer\xlCode-Setup-1.8.1.exe SHA256
+   certutil -hashfile release\installer\xlCode-Setup-1.8.2.exe SHA256
    ```
 
-   `b2aa8726c5e09f114755a1f96cfde7a06b2550204201451e281126e5ee90ee14` と一致すれば OK
-3. `xlCode-Setup-1.8.1.exe` を実行し、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
+   `22d63275c1f76cbb7a6e2f343a66b85af2c3c90fc865b1b8312e6348e73288c1` と一致すれば OK
+3. `xlCode-Setup-1.8.2.exe` を実行し、「自分だけ（管理者権限不要）」か「すべてのユーザー」を選ぶ
    - SmartScreen の警告が出たら「詳細情報 → 実行」（署名がないため）
    - 会社の AppLocker などで起動できない場合は「すべてのユーザー」（Program Files）で試す
 4. スタートメニュー・デスクトップの xlCode から起動する
@@ -40,7 +40,7 @@ cd xlCode
    certutil -hashfile release\xlCode-src-win.zip SHA256
    ```
 
-   `1fc1cfc445085107869c0a4c2c78155bdc1a47a31a72be8bd61aa5780c11ce77` と一致すれば OK
+   `56d754dff9da97117b9eb98dab2e7c81fdb6eb0ce767eb89137029d24a47b237` と一致すれば OK
 4. 展開する。エクスプローラーの展開は遅く、長いパスで失敗しやすいので `tar` を使う
 
    ```bat

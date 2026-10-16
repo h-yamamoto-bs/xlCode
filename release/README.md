@@ -2,8 +2,8 @@
 
 | 場所 | 中身 |
 |---|---|
-| `installer/` | Windows 用インストーラー（1.8.1。コミットは `installer/README.md` を参照） |
-| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（1.8.1、コミット 47e16d8） |
+| `installer/` | Windows 用インストーラー（1.8.2。コミットは `installer/README.md` を参照） |
+| このフォルダの `xlCode-src-win.zip.part*` | ソース一式＋Windows 用 node_modules（1.8.2、コミット 80e8c00） |
 
 どちらも GitHub の 1 ファイル 100MB 制限に収まるよう分割している。
 
@@ -11,7 +11,7 @@
 
 npm install できない環境向けの一式。
 
-- ソース一式（コミット 47e16d8・main、1.8.1。`release/` は除く）
+- ソース一式（コミット 80e8c00・main、1.8.2。`release/` は除く）
 - **Windows x64 用**の `node_modules`（Electron 本体、esbuild・Rollup・Tailwind・lightningcss の win32-x64 版、iconv-lite を含む）
 - `node_modules\.bin` の Windows 用の起動ファイル（`.cmd` / `.ps1`。npm が Windows で作るものと同じ cmd-shim で生成）。`npm run dev` などがそのまま動く
 - `package.json` / `package-lock.json`
@@ -28,6 +28,6 @@ Linux / macOS では `node_modules` の中身が合わないため、そのま�
 ### 確認用
 
 xlCode-src-win.zip の SHA-256:
-`1fc1cfc445085107869c0a4c2c78155bdc1a47a31a72be8bd61aa5780c11ce77`
+`56d754dff9da97117b9eb98dab2e7c81fdb6eb0ce767eb89137029d24a47b237`
 
 Windows では `certutil -hashfile xlCode-src-win.zip SHA256` で確認できる。
