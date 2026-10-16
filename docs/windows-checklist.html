@@ -127,7 +127,7 @@
       <option value="mid">中</option>
       <option value="low">低</option>
     </select></label>
-    <label><input type="checkbox" id="fNew" /> 今回の変更（1.6.0〜1.8.0）だけ</label>
+    <label><input type="checkbox" id="fNew" /> 今回の変更（1.6.0〜1.8.1）だけ</label>
     <label>並べ替え <select id="sort">
       <option value="id">番号順</option>
       <option value="pri">優先度 → 番号</option>
@@ -158,7 +158,7 @@
   <div class="empty hidden" id="empty">一致する項目がありません。</div>
 
   <footer>
-    対象コミット: <span id="rev">main（1.8.0）</span>。
+    対象コミット: <span id="rev">main（1.8.1）</span>。
     元になった一覧: <code>docs/windows-checklist.md</code>。NG のときは、出力パネルの内容と再現手順をメモに残してください。
     保存先: <code>localStorage</code>（キー <code>xlcode-win-checklist-v1</code>）。
   </footer>
@@ -188,13 +188,13 @@ const CATEGORIES = [
 ];
 const ITEMS = [
   // インストーラー・起動
-  { id: 'I-1', cat: 'install', pri: 'high', tag: 'base', title: 'インストーラーが起動し、インストール先を選べる', steps: 'release\\installer\\join.bat → xlCode-Setup-1.8.0.exe を実行', expect: '「自分だけ / すべてのユーザー」とインストール先を選べる。SmartScreen は「詳細情報 → 実行」で進める' },
+  { id: 'I-1', cat: 'install', pri: 'high', tag: 'base', title: 'インストーラーが起動し、インストール先を選べる', steps: 'release\\installer\\join.bat → xlCode-Setup-1.8.1.exe を実行', expect: '「自分だけ / すべてのユーザー」とインストール先を選べる。SmartScreen は「詳細情報 → 実行」で進める' },
   { id: 'I-2', cat: 'install', pri: 'high', tag: 'base', title: '「自分だけ」で管理者権限なしに入る', steps: '「自分だけ」を選んで完了', expect: 'UAC が出ない。%LOCALAPPDATA%\\Programs\\xlCode に xlCode.exe と Uninstall xlCode.exe がある' },
-  { id: 'I-3', cat: 'install', pri: 'mid', tag: 'base', title: 'スタートメニュー・デスクトップ・「アプリと機能」', steps: 'インストール後に確認', expect: 'ショートカットにアイコンが出る。設定 → アプリに xlCode 1.8.0 があり、アンインストールできる' },
-  { id: 'I-4', cat: 'install', pri: 'high', tag: 'base', title: '1.5.x からの上書きインストール', steps: '1.5.2 や 1.6.0 を入れた PC で 1.8.0 を実行', expect: 'そのまま上書きされ、最近使ったプロジェクト・使う Excel の設定が残る' },
+  { id: 'I-3', cat: 'install', pri: 'mid', tag: 'base', title: 'スタートメニュー・デスクトップ・「アプリと機能」', steps: 'インストール後に確認', expect: 'ショートカットにアイコンが出る。設定 → アプリに xlCode 1.8.1 があり、アンインストールできる' },
+  { id: 'I-4', cat: 'install', pri: 'high', tag: 'base', title: '1.5.x からの上書きインストール', steps: '1.5.2 や 1.6.0 を入れた PC で 1.8.1 を実行', expect: 'そのまま上書きされ、最近使ったプロジェクト・使う Excel の設定が残る' },
   { id: 'I-5', cat: 'install', pri: 'mid', tag: 'base', title: '会社のセキュリティ設定（AppLocker 等）', steps: '%LOCALAPPDATA%\\Programs から起動', expect: '起動できる。止められるなら「すべてのユーザー」（Program Files）で起動できる' },
   { id: 'I-6', cat: 'install', pri: 'mid', tag: 'base', title: '2 つ目の起動は 1 つ目を前面にする', steps: '起動中にもう一度ショートカットを押す', expect: '新しいウィンドウは開かず、既存のウィンドウが前面に出る' },
-  { id: 'I-7', cat: 'install', pri: 'mid', tag: 'base', title: 'ソース版（xlCode-src-win.zip）で npm run dev', steps: 'release\\join.bat → tar -xf → npm run dev（Node.js 22 以上）', expect: 'npm install なしで起動する。1.8.0 のソースと node_modules の組み合わせで動く' },
+  { id: 'I-7', cat: 'install', pri: 'mid', tag: 'base', title: 'ソース版（xlCode-src-win.zip）で npm run dev', steps: 'release\\join.bat → tar -xf → npm run dev（Node.js 22 以上）', expect: 'npm install なしで起動する。1.8.1 のソースと node_modules の組み合わせで動く' },
   // メニュー削除とウィンドウ
   { id: 'M-1', cat: 'menu', pri: 'high', tag: 'new', title: 'Ctrl+W がウィンドウを閉じない', steps: 'ブックのタブを 2 つ開いて Ctrl+W', expect: 'タブだけが閉じる。タブが 0 枚の状態で Ctrl+W を押してもウィンドウは閉じない' },
   { id: 'M-2', cat: 'menu', pri: 'high', tag: 'new', title: 'Ctrl+R が画面を再読み込みしない', steps: 'Ctrl+R', expect: '「最近使用したプロジェクト」のパレットが出る。画面が白くなったり出力パネルが消えたりしない' },
