@@ -652,7 +652,8 @@ export function App() {
         for (const [rel, o] of entries) {
           if (o.result === 'updated') log('success', `OneDrive から新しい内容が届きました: ${rel}`);
           else if (o.result === 'failed') log('error', `${rel}: ${o.reason}${o.detail ? ` ${o.detail}` : ''}`);
-          else if (o.result === 'skipped' && o.reason !== 'OneDrive 外') log('warning', `${rel}: ${o.reason}`);
+          else if (o.result === 'skipped' && o.reason !== 'OneDrive 外')
+            log('warning', `${rel}: ${o.reason}${o.detail ? ` ${o.detail}` : ''}`);
           else if (o.detail) log('info', `${rel}: 変わりありません ${o.detail}`);
         }
         log(

@@ -8,7 +8,8 @@ import { isUnder, oneDriveRoots, oneDriveRunning } from './syncStatus';
  * OneDrive は、Excel（デスクトップ版）で開いていないブックの変更を、すぐにはこの PC に届けないことがある。
  * Web 版で編集したあとに xlCode を見ても「Excel 側の変更あり」にならないのはそのため。
  * 同期を指示する公開の API は無いので、ファイル オンデマンドの仕組みを使う:
- *   1. attrib +U（「空き領域を増やす」）でローカルの中身を捨てさせ
+ *   1. Cloud Files API の CfDehydratePlaceholder（エクスプローラーの「空き領域を増やす」と同じ）で
+ *      ローカルの中身をその場で捨てる。API が使えなければ attrib +U で OneDrive に捨てさせる（遅い）
  *   2. ファイルを読んで（「このデバイス上で常に保持する」と同じ要求）クラウドの今の内容を取り寄せ
  *   3. 同期状態が落ち着くまで待つ
  * アップロード待ち・転送中・一時停止・エラーのブックと、Excel で開いているブックには触らない。
@@ -24,6 +25,10 @@ export interface RawFetchInfo {
   step: string;
   /** 取得前は「オンラインのみ」だった（捨てる手順を飛ばした） */
   wasOnline: boolean;
+  /** 捨てた方法: cf（Cloud Files API）/ attrib（OneDrive に任せた）/ null（捨てていない） */
+  how: string | null;
+  /** Cloud Files API のエラー（HRESULT の 16 進）。API が読み込めなかったときは load: 〜 */
+  cfErr: string | null;
   err: string | null;
   sts: number | null;
   attrs: number | null;
@@ -41,6 +46,26 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $paths = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}')))
 $sh = New-Object -ComObject Shell.Application
+# Cloud Files API（cldapi.dll）。エクスプローラーの「空き領域を増やす」が使うもの
+$cfLoadErr = $null
+try {
+  Add-Type -Namespace XlCode -Name Cf -MemberDefinition @'
+[DllImport("cldapi.dll", CharSet = CharSet.Unicode)]
+public static extern int CfOpenFileWithOplock(string FilePath, int Flags, out IntPtr ProtectedHandle);
+[DllImport("cldapi.dll")]
+public static extern void CfCloseHandle(IntPtr FileHandle);
+[DllImport("cldapi.dll")]
+public static extern int CfDehydratePlaceholder(IntPtr FileHandle, long StartingOffset, long Length, int DehydrateFlags, IntPtr Overlapped);
+'@
+} catch { $cfLoadErr = $_.Exception.Message }
+function CfDehydrate($p) {
+  $h = [IntPtr]::Zero
+  $hr = [XlCode.Cf]::CfOpenFileWithOplock($p, 0, [ref]$h)
+  if ($hr -ne 0) { return ('0x{0:X8}' -f $hr) }
+  try { $hr = [XlCode.Cf]::CfDehydratePlaceholder($h, 0, -1, 0, [IntPtr]::Zero) } finally { [XlCode.Cf]::CfCloseHandle($h) }
+  if ($hr -ne 0) { return ('0x{0:X8}' -f $hr) }
+  return $null
+}
 $ONLINE = 0x401000   # FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_OFFLINE
 $PINNED = 0x80000
 $UNPINNED = 0x100000
@@ -55,7 +80,7 @@ function Sts($p) {
 }
 $out = @()
 foreach ($p in @($paths)) {
-  $r = [ordered]@{ path = $p; before = $null; after = $null; step = ''; wasOnline = $false; err = $null; sts = $null; attrs = $null }
+  $r = [ordered]@{ path = $p; before = $null; after = $null; step = ''; wasOnline = $false; how = $null; cfErr = $null; err = $null; sts = $null; attrs = $null }
   try {
     $r.before = Stamp $p
     $attrs = Attrs $p
@@ -67,12 +92,17 @@ foreach ($p in @($paths)) {
     $online = ($attrs -band $ONLINE) -ne 0
     $r.wasOnline = $online
     if (-not $online) {
-      # 1. 空き領域を増やす（ローカルの中身を捨てる）。同期済みのファイルなら数秒で消える
+      # 1. 空き領域を増やす（ローカルの中身を捨てる）。「常に保持」のままでは捨てられないので先に外す
       & attrib.exe +U -P $p | Out-Null
-      $deadline = (Get-Date).AddMilliseconds(${DEHYDRATE_WAIT_MS})
-      while ((Get-Date) -lt $deadline) {
-        if (((Attrs $p) -band $ONLINE) -ne 0) { $online = $true; break }
-        Start-Sleep -Milliseconds 500
+      if ($cfLoadErr) { $r.cfErr = "load: $cfLoadErr" } else { $r.cfErr = CfDehydrate $p }
+      if (((Attrs $p) -band $ONLINE) -ne 0) { $online = $true; $r.how = 'cf' }
+      if (-not $online) {
+        # API で捨てられなければ、attrib +U を見た OneDrive が捨てるのを待つ（時間がかかることがある）
+        $deadline = (Get-Date).AddMilliseconds(${DEHYDRATE_WAIT_MS})
+        while ((Get-Date) -lt $deadline) {
+          if (((Attrs $p) -band $ONLINE) -ne 0) { $online = $true; $r.how = 'attrib'; break }
+          Start-Sleep -Milliseconds 500
+        }
       }
       if (-not $online) {
         # ファイル オンデマンドが無効か、OneDrive が応じない。元に戻して諦める
@@ -106,21 +136,40 @@ ConvertTo-Json -InputObject @($out) -Compress
 `;
 }
 
+/** Cloud Files API のエラー（winerror.h の ERROR_CLOUD_FILE_*）を日本語に */
+export function cfMessage(hresult: string | null): string | null {
+  if (!hresult) return null;
+  if (hresult.startsWith('load: ')) return `Cloud Files API を読み込めませんでした（${hresult.slice(6)}）`;
+  const code = Number.parseInt(hresult.slice(-4), 16);
+  const known: Record<number, string> = {
+    0x16a: 'OneDrive のファイル オンデマンドの対象ではありません（プレースホルダーではない）',
+    0x16b: 'OneDrive がまだこのファイルをクラウドと同期し終えていません（しばらくしてからもう一度）',
+    0x174: 'OneDrive の認証が切れています',
+    0x176: 'ネットワークに接続できません',
+    0x178: 'OneDrive の同期フォルダの中ではありません',
+    0x179: '他のアプリが開いています',
+    0x17a: '「このデバイス上で常に保持する」になっています',
+    0x17d: 'アクセスが拒否されました',
+    0x186: 'OneDrive が動いていません',
+    0x187: 'OneDrive の同期フォルダではありません',
+  };
+  const win32 = /^0x8007[0-9a-f]{4}$/i.test(hresult) ? known[code] : undefined;
+  return win32 ? `${win32}（${hresult}）` : `Cloud Files API のエラー ${hresult}`;
+}
+
 /** 生の結果から、画面に出す結果を決める */
 export function outcomeOf(raw: RawFetchInfo): FetchOutcome {
   const detail = JSON.stringify({
     step: raw.step,
+    how: raw.how,
+    cf: raw.cfErr,
     before: raw.before,
     after: raw.after,
     attrs: raw.attrs,
     sts: raw.sts,
   });
   if (raw.err) {
-    return {
-      result: 'failed',
-      reason: `OneDrive から取り寄せられませんでした: ${raw.err}`,
-      detail,
-    };
+    return { result: 'failed', reason: `OneDrive から取り寄せられませんでした: ${raw.err}`, detail };
   }
   if (raw.step === 'busy') {
     return {
@@ -130,21 +179,19 @@ export function outcomeOf(raw: RawFetchInfo): FetchOutcome {
     };
   }
   if (raw.step === 'no-dehydrate') {
+    const cf = cfMessage(raw.cfErr);
     return {
       result: 'skipped',
-      reason:
-        'OneDrive がローカルの中身を捨ててくれませんでした（ファイル オンデマンドが無効か、同期が止まっています）',
+      reason: cf
+        ? `ローカルの中身を捨てられませんでした: ${cf}`
+        : 'OneDrive がローカルの中身を捨ててくれませんでした（ファイル オンデマンドが無効か、同期が止まっています）',
       detail,
     };
   }
   if (raw.step !== 'done') return { result: 'failed', reason: `結果が分かりません（${raw.step || '不明'}）`, detail };
-  if (raw.wasOnline)
-    return {
-      result: raw.before === raw.after ? 'unchanged' : 'updated',
-      reason: 'オンラインのみだったので取り寄せました',
-      detail,
-    };
-  return { result: raw.before === raw.after ? 'unchanged' : 'updated', detail };
+  const result = raw.before === raw.after ? 'unchanged' : 'updated';
+  if (raw.wasOnline) return { result, reason: 'オンラインのみだったので取り寄せました', detail };
+  return { result, detail };
 }
 
 /**

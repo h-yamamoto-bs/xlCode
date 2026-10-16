@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFetchScript, fetchLatest, outcomeOf, type RawFetchInfo } from '../src/main/onedriveFetch';
+import { buildFetchScript, cfMessage, fetchLatest, outcomeOf, type RawFetchInfo } from '../src/main/onedriveFetch';
 import { findMatches, highlight } from '../src/renderer/src/find';
 
 const raw = (over: Partial<RawFetchInfo>): RawFetchInfo => ({
@@ -8,6 +8,8 @@ const raw = (over: Partial<RawFetchInfo>): RawFetchInfo => ({
   after: '2:120',
   step: 'done',
   wasOnline: false,
+  how: 'cf',
+  cfErr: null,
   err: null,
   sts: 0,
   attrs: 32,
@@ -29,10 +31,21 @@ describe('OneDrive から最新を取り直す', () => {
       result: 'skipped',
       reason: expect.stringContaining('同期の途中'),
     });
-    expect(outcomeOf(raw({ step: 'no-dehydrate' }))).toMatchObject({
+    expect(outcomeOf(raw({ step: 'no-dehydrate', how: null }))).toMatchObject({
       result: 'skipped',
       reason: expect.stringContaining('ファイル オンデマンド'),
     });
+    // Cloud Files API のエラーは理由を日本語にして付ける
+    expect(outcomeOf(raw({ step: 'no-dehydrate', how: null, cfErr: '0x8007016B' })).reason).toContain(
+      '同期し終えていません（しばらくしてからもう一度）（0x8007016B）',
+    );
+    expect(outcomeOf(raw({ step: 'no-dehydrate', how: null, cfErr: '0x8007016A' })).reason).toContain(
+      'プレースホルダーではない',
+    );
+    expect(cfMessage('0x8007017A')).toContain('常に保持する');
+    expect(cfMessage('0x80070005')).toBe('Cloud Files API のエラー 0x80070005');
+    expect(cfMessage('load: Add-Type failed')).toContain('読み込めませんでした（Add-Type failed）');
+    expect(cfMessage(null)).toBeNull();
     expect(outcomeOf(raw({ err: 'Access denied' }))).toMatchObject({
       result: 'failed',
       reason: expect.stringContaining('Access denied'),
@@ -49,6 +62,9 @@ describe('OneDrive から最新を取り直す', () => {
     expect(script).toContain(b64);
     expect(script).not.toContain('株式会社');
     const dehydrate = script.indexOf('attrib.exe +U -P');
+    const cf = script.indexOf('CfDehydrate $p');
+    expect(cf).toBeGreaterThan(dehydrate);
+    expect(script).toContain('CfDehydratePlaceholder');
     const read = script.indexOf('ReadAllBytes');
     const restore = script.lastIndexOf('attrib.exe +P -U');
     expect(dehydrate).toBeGreaterThan(0);
